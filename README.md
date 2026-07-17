@@ -9,6 +9,7 @@
 -   **🤖 Local AI Tagging (optional)**: Re-tags files in the generic buckets (`TEXTS`, `OTHERS`) into meaningful categories — an invoice → `INVOICES`, a log → `LOGS`. Two modes:
     -   `--ai` (default): **deterministic zero-shot** — encodes the file and each candidate category with an embedding model, picks the nearest by cosine similarity. Always returns a name from a fixed list (no hallucinated typos), fast (~ms/file). Runs **in-process** via `fastembed` (`pip install cleanup-cli[embed]`, no server) **or** via Ollama — `--ai-backend local|ollama|auto`.
     -   `--ai-creative`: a **generative LLM** (Ollama) that may invent new category names. More flexible, slower (~seconds/file).
+    -   `--ai-adaptive`: **learns from your corrections** — when you re-file something, a similar file is filed the same way next time (a local, embedding-based memory). Teach from the CLI (`--ai-teach FILE CATEGORY`) or by editing a category in the web preview.
     -   Fully offline, no API key; if no backend is available the feature simply switches off.
 -   **👀 Watch Mode**: `--watch` keeps a folder tidy continuously — new files are sorted as they arrive, once they finish downloading (size-stability debounce). Every move is undoable and logged; stops cleanly on Ctrl+C or `kill`.
 -   **🗂️ Layout Schemes**: Organize by `type` (default), by `date` (`IMAGES/2026/07/`), or by `size` bucket — `--by date|size`.
@@ -93,6 +94,16 @@ cleanup ~/Downloads --ai-creative --ai-model mistral
 `--ai-backend auto` (default) prefers the in-process backend if `fastembed` is
 installed, otherwise Ollama.
 
+**Adaptive mode** learns from your corrections (stored locally in
+`~/.config/cleanup/decisions.json`, or `$CLEANUP_HOME`):
+
+```bash
+cleanup ~/Downloads --ai-teach report_q1.pdf REPORTS   # teach once
+cleanup ~/Downloads --ai --ai-adaptive                 # similar files → REPORTS
+```
+
+In the web GUI, edit a suggested category in the preview to teach the same way.
+
 The default embedding mode is deterministic (categories from a fixed list, no
 typos) and much faster than generation. Nothing leaves your machine, and if
 Ollama is down CleanUp runs normally without AI.
@@ -118,6 +129,8 @@ CLEANUP_AI_THRESHOLD=0.60 cleanup ~/Downloads --ai
 -   `--ai`: Categorize ambiguous files by embedding similarity (deterministic).
 -   `--ai-backend auto|local|ollama`: Embedding backend for `--ai` (default: `auto`, prefers in-process `local`).
 -   `--ai-creative`: Use a generative LLM (Ollama) that can invent new categories.
+-   `--ai-adaptive`: Learn from corrections — reuse a remembered category for similar files.
+-   `--ai-teach FILE CATEGORY`: Teach the adaptive AI that `FILE` belongs in `CATEGORY`.
 -   `--ai-model MODEL`: Ollama model for `--ai-creative` / `ollama` backend (default: auto-detect).
 -   `--watch`, `-w`: Watch the directory and sort new files continuously (Ctrl+C to stop).
 -   `--interval SEC`: Polling interval for `--watch` (default: 2.0s).
@@ -200,7 +213,9 @@ cleanup/
 │   ├── ollama.py       # dependency-free Ollama HTTP client (generate + embeddings)
 │   ├── local_embed.py  # in-process embedding backend (fastembed, no server)
 │   ├── backends.py     # embedding backend resolver (local / ollama / auto)
-│   └── classify.py     # Embedding (zero-shot) & Creative (LLM) classifiers + AiInteraction
+│   ├── classify.py     # Embedding (zero-shot) & Creative (LLM) classifiers + AiInteraction
+│   ├── memory.py       # persistent store of user corrections (~/.config/cleanup)
+│   └── adaptive.py     # AdaptiveClassifier — learns from corrections
 ├── cli/         # Rich terminal interface built on core/
 └── web/         # FastAPI backend + self-contained frontend
     ├── service.py    # JSON bridge to the core engine

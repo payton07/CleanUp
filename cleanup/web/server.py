@@ -50,6 +50,12 @@ class ScanBody(BaseModel):
         )
 
 
+class CorrectBody(BaseModel):
+    path: str
+    src: str
+    category: str
+
+
 class DedupeBody(BaseModel):
     path: str
     recursive: bool = True
@@ -78,6 +84,15 @@ def api_browse(path: str | None = None) -> JSONResponse:
 @app.get("/api/ai/status")
 def api_ai_status() -> JSONResponse:
     return JSONResponse(service.ai_status())
+
+
+@app.post("/api/ai/correct")
+def api_ai_correct(body: CorrectBody) -> JSONResponse:
+    try:
+        directory = service.resolve_dir(body.path)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse(service.record_correction(directory, body.src, body.category))
 
 
 @app.post("/api/scan")

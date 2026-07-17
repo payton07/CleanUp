@@ -113,6 +113,12 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
+def file_repr(path: Path) -> str:
+    """Canonical text used to embed a file (name + content preview). Shared by
+    the embedding classifier and the adaptive memory so vectors are comparable."""
+    return f"{path.name}\n{read_snippet(path)}"
+
+
 # ─── CLASSIFIER STRATEGIES ──────────────────────────────────────────────────
 
 class Classifier(Protocol):
@@ -175,7 +181,7 @@ class EmbeddingClassifier:
         self._ensure_labels()
         if not self._labels:
             return None, 0.0
-        vec = self._client.embed(f"{path.name}\n{read_snippet(path)}")
+        vec = self._client.embed(file_repr(path))
         if not vec:
             return None, 0.0
         return max(

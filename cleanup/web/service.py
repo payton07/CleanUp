@@ -12,9 +12,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from ..ai.adaptive import AdaptiveClassifier
 from ..ai.backends import resolve_embedder
 from ..ai.classify import AiInteraction, CreativeClassifier, EmbeddingClassifier
 from ..ai.local_embed import LocalEmbedder
+from ..ai.memory import DecisionStore
 from ..ai.ollama import OllamaClient
 from ..core import detect
 from ..core.collect import collect_files
@@ -53,15 +55,43 @@ def _ai_interaction(ruleset, opts: "SortOptions") -> AiInteraction | None:
     """
     if not (opts.ai or opts.ai_creative):
         return None
+    embedder = None
     if opts.ai_creative:
         client = OllamaClient(model=opts.ai_model)
         if not client.available() or not client.resolve_model():
             return None
-        return AiInteraction(CreativeClassifier(client, list(ruleset.mime_categories.keys())))
-    embedder, threshold, _label = resolve_embedder("auto", ollama_model=opts.ai_model)
+        base = CreativeClassifier(client, list(ruleset.mime_categories.keys()))
+    else:
+        embedder, threshold, _label = resolve_embedder("auto", ollama_model=opts.ai_model)
+        if embedder is None:
+            return None
+        base = EmbeddingClassifier(embedder, threshold=threshold)
+
+    # Adaptive memory is on by default in the web GUI (harmless when empty,
+    # and the preview lets the user teach corrections).
+    classifier = base
+    emb = embedder
+    if emb is None:
+        emb, _, _ = resolve_embedder("auto")
+    if emb is not None:
+        classifier = AdaptiveClassifier(emb, base)
+    return AiInteraction(classifier)
+
+
+def record_correction(directory: Path, src: str, category: str) -> dict:
+    """Remember that ``src`` (relative to ``directory``) belongs in ``category``."""
+    embedder, _threshold, _label = resolve_embedder("auto")
     if embedder is None:
-        return None
-    return AiInteraction(EmbeddingClassifier(embedder, threshold=threshold))
+        return {"ok": False, "reason": "no embedding backend"}
+    path = Path(src)
+    if not path.is_absolute():
+        path = directory / src
+    if not path.is_file():
+        return {"ok": False, "reason": "file not found"}
+    store = DecisionStore()
+    adaptive = AdaptiveClassifier(embedder, EmbeddingClassifier(embedder), store)
+    ok = adaptive.record(path, category.strip().upper())
+    return {"ok": ok, "learned": len(store)}
 
 
 # ─── PATH SAFETY ────────────────────────────────────────────────────────────
