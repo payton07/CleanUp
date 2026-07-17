@@ -9,7 +9,9 @@ event stream, and provides interactive prompts. All real work lives in
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -40,6 +42,7 @@ from ..core.history import HistoryStore
 from ..core.manifest import MoveRecord
 from ..core.organize import Scheme
 from ..core.runlog import log_run
+from ..core.watch import Watcher
 
 CUSTOM_THEME = Theme({
     "info": "cyan",
@@ -110,6 +113,7 @@ examples:
   cleanup ~/Downloads --ai            # zero-shot embeddings (fixed categories)
   cleanup ~/Downloads --ai-creative   # generative LLM (can invent categories)
   cleanup ~/Downloads --by date
+  cleanup ~/Downloads --watch         # sort new files as they arrive
   cleanup ~/Downloads --dedupe report --recursive
   cleanup ~/Downloads --undo        # multi-level
   cleanup ~/Downloads --redo
@@ -120,6 +124,10 @@ examples:
                         help="Only sort these extensions (e.g. py js png)")
     parser.add_argument("--recursive", "-r", action="store_true",
                         help="Descend into subdirectories")
+    parser.add_argument("--watch", "-w", action="store_true",
+                        help="Watch the directory and sort new files continuously (Ctrl+C to stop)")
+    parser.add_argument("--interval", type=float, default=2.0, metavar="SEC",
+                        help="Polling interval for --watch (default: 2.0s)")
     parser.add_argument("--dry-run", "-n", action="store_true",
                         help="Preview moves without executing them")
     parser.add_argument("--conflict", "-c", choices=[s.value for s in ConflictStrategy],
@@ -262,6 +270,80 @@ def _ask_enter_project(folder: Path) -> bool:
         default=True, console=console,
     )
     return not ignore
+
+
+def _run_watch(args: argparse.Namespace, directory: Path) -> None:
+    ruleset, message = load_ruleset(directory)
+    if message:
+        style = "success" if message.startswith("Config") else "warning"
+        console.print(f"  [{style}]{message}[/{style}]")
+
+    filter_exts = {e.lstrip(".").lower() for e in args.extensions} if args.extensions else None
+    interaction = None
+    if args.ai or args.ai_creative:
+        interaction = _build_ai_interaction(args, ruleset, None)
+
+    opts = []
+    if args.recursive: opts.append("recursive")
+    if args.smart: opts.append("🧠 smart")
+    if args.by != Scheme.TYPE.value: opts.append(f"layout {args.by}")
+    if interaction is not None: opts.append("🤖 AI")
+    detail = f" · {', '.join(opts)}" if opts else ""
+
+    console.print(Panel.fit(
+        f"[bold cyan]👀 Watching[/bold cyan] [bold]{directory}[/bold]\n"
+        f"[dim]polling every {args.interval:g}s{detail} — Ctrl+C to stop[/dim]",
+        border_style="cyan",
+    ))
+    if not detect.CONTENT_DETECTION:
+        console.print("  [dim]• content detection off (libmagic unavailable)[/dim]")
+
+    counters = {"total": 0}
+
+    def on_event(event) -> None:
+        if isinstance(event, FilePlanned):
+            ts = datetime.now().strftime("%H:%M:%S")
+            console.print(f"  [dim]{ts}[/dim]  {_safe_relpath(event.src, directory)} "
+                         f"[bold]→[/bold] [category]{_safe_relpath(event.dest, directory)}[/category]")
+
+    def on_sorted(manifest) -> None:
+        counters["total"] += len(manifest)
+        log_run(directory, f"watch: sorted {len(manifest)} file(s)")
+
+    watcher = Watcher(
+        directory, ruleset,
+        recursive=args.recursive, filter_exts=filter_exts,
+        conflict=ConflictStrategy(args.conflict), smart=args.smart,
+        scheme=Scheme(args.by), use_trash=not args.no_trash,
+        interaction=interaction, poll_interval=args.interval,
+        on_event=on_event, on_sorted=on_sorted,
+    )
+    # Stop cleanly on Ctrl+C (SIGINT) and on `kill` (SIGTERM, e.g. launchd/systemd).
+    # Explicit handlers also override an inherited SIG_IGN on backgrounded jobs.
+    previous: dict[int, object] = {}
+
+    def _stop(_signum, _frame):
+        watcher.stop()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            previous[sig] = signal.signal(sig, _stop)
+        except (ValueError, OSError):
+            pass  # e.g. not in the main thread
+
+    try:
+        watcher.run()
+    except KeyboardInterrupt:
+        watcher.stop()
+    finally:
+        for sig, handler in previous.items():
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, OSError):
+                pass
+
+    console.print(f"\n  [bold success]✨ Watch stopped[/bold success] "
+                 f"— {counters['total']} file(s) sorted this session.")
 
 
 def _build_ai_interaction(args, ruleset, base):
@@ -437,6 +519,11 @@ def main(argv: list[str] | None = None) -> None:
         _run_redo(directory)
     elif args.dedupe:
         _run_dedupe(args, directory)
+    elif args.watch:
+        if args.dry_run:
+            console.print("[error]❌ --watch cannot be combined with --dry-run.[/error]")
+            sys.exit(1)
+        _run_watch(args, directory)
     else:
         _run_sort(args, directory)
 
