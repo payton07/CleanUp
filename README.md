@@ -4,12 +4,20 @@
 
 ## 🌟 Key Features
 
--   **MIME-Type Intelligence**: Detects file categories (IMAGES, VIDEOS, DOCS, etc.) using real file content types, with an extension fallback.
+-   **Content-Aware Detection**: Reads each file's **magic bytes** (via `libmagic`) to classify it by its *actual* content — so a JPEG renamed `photo.txt` still lands in `IMAGES/`. Falls back to extension-based detection when `libmagic` isn't installed.
 -   **🧠 Smart Sorting (Context-Aware)**: Groups related files into "Themes" based on keywords in their names or parent folders. No more scattering your project files by type!
+-   **🤖 Local AI Tagging (optional)**: Re-tags files in the generic buckets (`TEXTS`, `OTHERS`) into meaningful categories — an invoice → `INVOICES`, a log → `LOGS` — using a locally-running [Ollama](https://ollama.com). Two modes:
+    -   `--ai` (default): **deterministic zero-shot** via an embedding model — encodes the file and each candidate category, picks the nearest by cosine similarity. Always returns a name from a fixed list (no hallucinated typos), and fast (~ms/file).
+    -   `--ai-creative`: a **generative LLM** that may invent new category names. More flexible, slower (~seconds/file).
+    -   Fully offline, no API key; if Ollama isn't running the feature simply switches off.
+-   **🗂️ Layout Schemes**: Organize by `type` (default), by `date` (`IMAGES/2026/07/`), or by `size` bucket — `--by date|size`.
+-   **♊ Duplicate Finder**: Detects identical files by **content hash** (BLAKE2, with a size pre-filter), reports reclaimable space, and can move or trash extra copies — `--dedupe report|move|trash`.
 -   **🤝 Interactive Mode**: An "Assistant" mode that asks for your confirmation for themes, unrecognized files, and project folder protection.
 -   **🛡️ Safety First**:
     -   `--dry-run`: Preview every move before it happens.
-    -   `--undo`: Instantly rollback the last sorting operation.
+    -   **Multi-level `--undo` / `--redo`**: Step back through *several* past runs, and replay them.
+    -   **Trash, not delete**: overwrites and dedupe removals go to the OS trash (recoverable) unless you pass `--no-trash`.
+    -   **Run log**: every operation is appended to `.cleanup.log`.
     -   **Project Detection**: Automatically identifies folders like `.git` or `venv` to prevent breaking your projects.
 -   **🎨 Modern Interface**: A beautiful terminal UI powered by `rich`, featuring progress bars, stylized panels, and a final summary dashboard.
 -   **⚙️ External Configuration**: Fully customizable via a `cleanup_config.json` file.
@@ -26,18 +34,83 @@ python Clean_up.py . --smart --recursive --dry-run
 # Full interactive intelligent sort
 python Clean_up.py . --smart --recursive --interactive
 
-# Rollback the last operation
+# Organize by date (IMAGES/2026/07/, ...)
+python Clean_up.py . --by date
+
+# Find duplicate files by content
+python Clean_up.py . --dedupe report --recursive
+
+# Rollback the last operation (repeat to step further back), then replay it
 python Clean_up.py . --undo
+python Clean_up.py . --redo
+```
+
+## 🖥️ Web GUI
+
+Prefer a visual interface? CleanUp ships a local web app (nothing leaves your machine — it binds to `127.0.0.1`).
+
+```bash
+pip install -e ".[content,web]"
+cleanup-web            # opens http://127.0.0.1:8765 in your browser
+```
+
+- **Folder picker** or paste a path
+- **Preview plan** — see every planned move (grouped by category) before committing
+- **Apply** with a **live progress** stream (WebSocket)
+- **Duplicates** tab — find identical files by content, move or trash extras
+- **History** tab — multi-level undo / redo of past runs
+
+The GUI is a thin layer over the same `cleanup.core` engine the CLI uses.
+The **🤖 AI** toggle appears automatically when Ollama is running, with a model picker; AI-suggested categories are marked with an `AI` badge in the preview.
+
+## 🤖 Local AI setup (optional)
+
+The AI tagging needs no extra Python packages (it uses a dependency-free HTTP
+client) — only a running [Ollama](https://ollama.com) server and a model:
+
+```bash
+ollama serve                       # start the local server (http://localhost:11434)
+
+# Default mode (--ai) uses embeddings — pull a small embedding model:
+ollama pull nomic-embed-text        # ~274 MB
+cleanup ~/Downloads --ai
+
+# Creative mode uses a generative LLM (can invent categories):
+ollama pull llama3                  # or mistral, qwen2.5, …
+cleanup ~/Downloads --ai-creative --ai-model mistral
+```
+
+The default embedding mode is deterministic (categories from a fixed list, no
+typos) and much faster than generation. Nothing leaves your machine, and if
+Ollama is down CleanUp runs normally without AI.
+
+**Threshold tuning.** A file is only re-tagged when its best category scores
+above a cosine threshold (default **0.56**, calibrated on a labeled corpus with
+`nomic-embed-text`); below it, the file safely stays in `TEXTS`. Recalibrate on
+your own files and override it:
+
+```bash
+python scripts/calibrate_threshold.py          # sweep on a built-in labeled corpus
+python scripts/calibrate_threshold.py --corpus ~/my_labeled_files
+CLEANUP_AI_THRESHOLD=0.60 cleanup ~/Downloads --ai
 ```
 
 ## 🛠️ Options
 
 -   `directory`: The target directory to organize.
 -   `--smart`, `-s`: Enable contextual theme-based grouping.
+-   `--by`, `-b`: Folder layout: `type` (default), `date` (YYYY/MM), or `size`.
+-   `--dedupe [ACTION]`: Find duplicate files by content. `ACTION`: `report` (default), `move` (to `DUPLICATES/`, undoable), `trash`.
 -   `--interactive`, `-i`: Enable interactive assistant mode.
+-   `--ai`: Categorize ambiguous files by embedding similarity (deterministic; needs an embedding model).
+-   `--ai-creative`: Use a generative LLM that can invent new categories.
+-   `--ai-model MODEL`: Ollama model for `--ai-creative` (default: auto-detect).
 -   `--recursive`, `-r`: Scan subdirectories (includes project detection).
 -   `--dry-run`, `-n`: Preview mode (no files are moved).
--   `--undo`, `-u`: Rollback the previous operation.
+-   `--clean-empty`: Remove empty subdirectories after sorting.
+-   `--undo`, `-u`: Roll back the last operation (repeatable — multi-level).
+-   `--redo`: Re-apply the last undone operation.
+-   `--no-trash`: Hard-delete on overwrite/dedupe instead of using the OS trash.
 -   `--extensions`, `-e`: Filter sorting to specific extensions (e.g., `py js`).
 -   `--conflict`, `-c`: Strategy for duplicate names: `rename` (default), `skip`, `overwrite`.
 
@@ -60,7 +133,62 @@ Create a `cleanup_config.json` in your target folder to customize rules:
 }
 ```
 
-## 📦 Requirements
+## 📦 Requirements & Install
 
--   Python 3.7+
--   `rich` library (`pip install rich`)
+-   **Python 3.10+**
+-   Core: `rich`, `pydantic`
+-   Optional (recommended) for content detection: `python-magic` + the `libmagic` system library
+    -   macOS: `brew install libmagic`
+    -   Debian/Ubuntu: `sudo apt install libmagic1`
+
+```bash
+# Install as a package (adds a `cleanup` command)
+pip install -e ".[content]"
+
+# ...then run it from anywhere
+cleanup ~/Downloads --smart
+
+# The legacy entry point still works too
+python Clean_up.py ~/Downloads
+```
+
+## 🧪 Development
+
+```bash
+pip install -e ".[content,dev]"
+pytest
+```
+
+## 🏗️ Architecture
+
+The engine and the interface are separated so the same logic can drive the CLI
+(and, soon, a web GUI):
+
+```
+cleanup/
+├── core/        # UI-agnostic engine
+│   ├── detect.py     # magic-byte + extension detection
+│   ├── config.py     # schema-validated rules (pydantic)
+│   ├── collect.py    # file discovery + project protection
+│   ├── conflict.py   # duplicate-name strategies
+│   ├── organize.py   # layout schemes: type / date / size
+│   ├── dedupe.py     # content-hash duplicate detection
+│   ├── engine.py     # orchestrator, emits progress events
+│   ├── events.py     # event dataclasses
+│   ├── history.py    # multi-level undo/redo sessions
+│   ├── trash.py      # recoverable removal (send2trash)
+│   ├── runlog.py     # append-only .cleanup.log
+│   └── manifest.py   # the persisted move record
+├── ai/          # optional local Ollama tagging (opt-in, offline)
+│   ├── ollama.py     # dependency-free HTTP client (generate + embeddings)
+│   └── classify.py   # Embedding (zero-shot) & Creative (LLM) classifiers + AiInteraction
+├── cli/         # Rich terminal interface built on core/
+└── web/         # FastAPI backend + self-contained frontend
+    ├── service.py    # JSON bridge to the core engine
+    ├── server.py     # REST + WebSocket app, `cleanup-web` launcher
+    └── static/       # single-page UI (no external assets)
+```
+
+The engine reports progress through an event callback and delegates interactive
+choices to an `Interaction` object, so batch runs, the CLI, and a future web
+backend all share one code path.
