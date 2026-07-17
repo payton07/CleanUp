@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CleanUp</title>
+<style>
+  :root {
+    --bg: #f6f7fb; --surface: #ffffff; --surface-2: #f0f1f7;
+    --border: #e2e4ee; --text: #1c1f2a; --muted: #6b7089;
+    --accent: #6b5cff; --accent-2: #9b7bff; --accent-soft: #eceaff;
+    --green: #1a9d6a; --green-soft: #e3f6ee;
+    --amber: #b8860b; --red: #d64550; --red-soft: #fbe9ea;
+    --shadow: 0 1px 2px rgba(20,20,50,.06), 0 8px 24px rgba(20,20,50,.06);
+    --radius: 14px;
+  }
+  /* Dark values, shared by the system preference (unless the user forced light)
+     and by an explicit data-theme="dark" toggle. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1017; --surface: #181a24; --surface-2: #1f2230;
+      --border: #2a2e3f; --text: #e8eaf2; --muted: #9297b0;
+      --accent: #8b7bff; --accent-2: #a690ff; --accent-soft: #26244a;
+      --green: #3ad391; --green-soft: #16342a;
+      --amber: #e0a93b; --red: #ff6b76; --red-soft: #3a2226;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1017; --surface: #181a24; --surface-2: #1f2230;
+    --border: #2a2e3f; --text: #e8eaf2; --muted: #9297b0;
+    --accent: #8b7bff; --accent-2: #a690ff; --accent-soft: #26244a;
+    --green: #3ad391; --green-soft: #16342a;
+    --amber: #e0a93b; --red: #ff6b76; --red-soft: #3a2226;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+  /* data-theme="light" simply falls back to the :root light defaults above. */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  header.app { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+  .logo {
+    width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    font-size: 20px; box-shadow: var(--shadow);
+  }
+  header.app h1 { font-size: 20px; margin: 0; letter-spacing: -.02em; }
+  header.app p { margin: 0; color: var(--muted); font-size: 13px; }
+  .theme-toggle {
+    margin-left: auto; width: 40px; height: 40px; padding: 0; border-radius: 11px;
+    display: grid; place-items: center; font-size: 18px; background: var(--surface);
+  }
+  .theme-toggle:hover { border-color: var(--accent); }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px;
+  }
+  .card + .card { margin-top: 16px; }
+
+  /* Path bar */
+  .pathbar { display: flex; gap: 10px; align-items: center; }
+  .pathbar input {
+    flex: 1; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); font-size: 14px; font-family: ui-monospace, monospace;
+  }
+  .pathbar input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+  button {
+    font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); padding: 10px 15px; font-size: 14px;
+    font-weight: 550; transition: transform .04s, background .15s, border-color .15s;
+  }
+  button:hover { border-color: var(--accent); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-2); }
+  button.ghost { background: transparent; }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+
+  /* Options */
+  .opts { display: flex; flex-wrap: wrap; gap: 14px 20px; margin-top: 14px; align-items: center; }
+  .opt { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--muted); }
+  .opt input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+  .opt select, .opt input[type=text] {
+    padding: 6px 9px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px;
+  }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; margin: 22px 0 14px; border-bottom: 1px solid var(--border); }
+  .tab {
+    background: none; border: none; border-radius: 0; padding: 10px 16px; color: var(--muted);
+    font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* Category chips */
+  .cats { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+  .chip {
+    display: flex; align-items: center; gap: 8px; padding: 8px 13px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 13px;
+  }
+  .chip b { background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+
+  /* Rows / list */
+  .row {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center;
+    padding: 9px 12px; border-radius: 9px; font-size: 13.5px;
+  }
+  .row:nth-child(odd) { background: var(--surface-2); }
+  .row .src { font-family: ui-monospace, monospace; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .arrow { color: var(--accent); }
+  .row .dest { font-family: ui-monospace, monospace; display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .row .dest .dest-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ai-tag { flex: none; font-size: 10.5px; font-weight: 700; color: var(--accent); background: var(--accent-soft);
+            border-radius: 5px; padding: 1px 5px; }
+  .list-scroll { max-height: 340px; overflow-y: auto; margin-top: 6px; }
+
+  /* Progress */
+  .progress { height: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin: 14px 0 8px; }
+  .progress > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .18s; }
+  .log { font-family: ui-monospace, monospace; font-size: 12.5px; max-height: 220px; overflow-y: auto;
+         background: var(--surface-2); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+  .log div { padding: 1px 0; color: var(--muted); }
+  .log .mv { color: var(--text); }
+
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  .muted { color: var(--muted); }
+  .empty { text-align: center; color: var(--muted); padding: 34px 10px; }
+  .banner { padding: 10px 13px; border-radius: 10px; font-size: 13.5px; margin-top: 12px; }
+  .banner.ok { background: var(--green-soft); color: var(--green); }
+  .banner.warn { background: var(--red-soft); color: var(--red); }
+  .badge-off { font-size: 11.5px; color: var(--amber); }
+
+  /* Dup groups */
+  .dupgroup { border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; margin-bottom: 10px; }
+  .dupgroup .head { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .dupgroup .file { font-family: ui-monospace, monospace; font-size: 13px; padding: 3px 0; }
+  .dupgroup .file.keep { color: var(--green); font-weight: 600; }
+  .dupgroup .file.keep::after { content: " · kept"; font-weight: 400; opacity: .8; }
+
+  /* History */
+  .hist { display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 10px; }
+  .hist:nth-child(odd) { background: var(--surface-2); }
+  .hist .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--accent); flex: none; }
+  .hist .lbl { font-weight: 600; }
+  .hist .meta { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+
+  /* Modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(10,10,25,.5); display: none; place-items: center; z-index: 20; }
+  .modal-bg.open { display: grid; }
+  .modal { width: min(520px, 92vw); max-height: 80vh; display: flex; flex-direction: column;
+           background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); }
+  .modal h3 { margin: 0; padding: 16px 18px; border-bottom: 1px solid var(--border); font-size: 15px; }
+  .modal .cur { padding: 8px 18px; font-family: ui-monospace, monospace; font-size: 12.5px; color: var(--muted);
+                border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; }
+  .modal .dirs { overflow-y: auto; padding: 8px; flex: 1; }
+  .diritem { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .diritem:hover { background: var(--surface-2); }
+  .modal .foot { display: flex; gap: 10px; justify-content: flex-end; padding: 14px 18px; border-top: 1px solid var(--border); }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--accent-soft);
+          border-top-color: var(--accent); border-radius: 999px; animation: sp .7s linear infinite; vertical-align: -2px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="app">
+    <div class="logo">✨</div>
+    <div>
+      <h1>CleanUp</h1>
+      <p>Content-aware file organizer <span id="cd-badge"></span></p>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Switch light / dark">🌙</button>
+  </header>
+
+  <div class="card">
+    <div class="pathbar">
+      <input id="path" placeholder="/path/to/folder — type a path or browse" spellcheck="false" />
+      <button class="ghost" id="browse">📁 Browse</button>
+    </div>
+    <div class="opts">
+      <label class="opt"><input type="checkbox" id="recursive"> Recursive</label>
+      <label class="opt"><input type="checkbox" id="smart"> 🧠 Smart Tags</label>
+      <label class="opt">Layout
+        <select id="scheme"><option value="type">type</option><option value="date">date</option><option value="size">size</option></select>
+      </label>
+      <label class="opt">Conflicts
+        <select id="conflict"><option value="rename">rename</option><option value="skip">skip</option><option value="overwrite">overwrite</option></select>
+      </label>
+      <label class="opt"><input type="checkbox" id="clean_empty"> Clean empty dirs</label>
+      <label class="opt">Only ext <input type="text" id="extensions" placeholder="py js png" style="width:110px"></label>
+      <label class="opt" id="ai-opt" title="Categorize ambiguous files with a local model">
+        <input type="checkbox" id="ai" disabled> 🤖 AI
+        <span id="ai-note" class="badge-off"></span>
+      </label>
+      <label class="opt" id="ai-creative-opt" style="display:none" title="Generative LLM that can invent new categories (slower)">
+        <input type="checkbox" id="ai-creative"> creative
+        <select id="ai-model" disabled style="display:none"></select>
+      </label>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="organize">Organize</button>
+    <button class="tab" data-tab="duplicates">Duplicates</button>
+    <button class="tab" data-tab="history">History</button>
+  </div>
+
+  <!-- ORGANIZE -->
+  <div class="panel active" id="panel-organize">
+    <div class="card">
+      <div class="actions" style="margin-top:0">
+        <button class="primary" id="preview">Preview plan</button>
+        <button id="apply" disabled>Apply sort</button>
+        <span id="org-status" class="muted"></span>
+      </div>
+      <div id="org-body"></div>
+      <div class="progress" id="progbar" style="display:none"><div></div></div>
+      <div class="log" id="log" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- DUPLICATES -->
+  <div class="panel" id="panel-duplicates">
+    <div class="card">
+      <div class="actions" style="margin-top:0">
+        <button class="primary" id="dup-scan">Find duplicates</button>
+        <button id="dup-move" disabled>Move extras → DUPLICATES/</button>
+        <button class="danger" id="dup-trash" disabled>Trash extras</button>
+        <span id="dup-status" class="muted"></span>
+      </div>
+      <div id="dup-body"></div>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="panel" id="panel-history">
+    <div class="card">
+      <div class="actions" style="margin-top:0">
+        <button id="undo" disabled>↩ Undo</button>
+        <button id="redo" disabled>↪ Redo</button>
+        <button class="ghost" id="hist-refresh">Refresh</button>
+      </div>
+      <div id="hist-body"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Folder picker -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3>Choose a folder</h3>
+    <div class="cur" id="modal-cur">—</div>
+    <div class="dirs" id="modal-dirs"></div>
+    <div class="foot">
+      <button class="ghost" id="modal-cancel">Cancel</button>
+      <button class="primary" id="modal-use">Use this folder</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+
+// ── Theme (persisted; defaults to the system preference) ──
+function systemDark() { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
+function effectiveTheme() {
+  const forced = document.documentElement.getAttribute("data-theme");
+  return forced || (systemDark() ? "dark" : "light");
+}
+function applyTheme(theme) {
+  if (theme) document.documentElement.setAttribute("data-theme", theme);
+  else document.documentElement.removeAttribute("data-theme");
+  $("#theme-toggle").textContent = effectiveTheme() === "dark" ? "🌙" : "☀️";
+}
+applyTheme(localStorage.getItem("theme"));  // null => follow system
+$("#theme-toggle").onclick = () => {
+  const next = effectiveTheme() === "dark" ? "light" : "dark";
+  localStorage.setItem("theme", next);
+  applyTheme(next);
+};
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (!localStorage.getItem("theme")) applyTheme(null);  // still following system
+});
+const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+const fmtBytes = n => { let v = n; for (const u of ["B","KB","MB","GB","TB"]) { if (v < 1024 || u==="TB") return (u==="B"?v.toFixed(0):v.toFixed(1))+" "+u; v/=1024; } };
+
+function opts() {
+  return {
+    path: $("#path").value.trim(),
+    recursive: $("#recursive").checked,
+    smart: $("#smart").checked,
+    scheme: $("#scheme").value,
+    conflict: $("#conflict").value,
+    clean_empty: $("#clean_empty").checked,
+    no_trash: false,
+    extensions: $("#extensions").value.split(/[\s,]+/).filter(Boolean),
+    ai: $("#ai").checked && !$("#ai-creative").checked,       // embeddings mode
+    ai_creative: $("#ai").checked && $("#ai-creative").checked, // generative mode
+    ai_model: $("#ai-model").value || null,
+  };
+}
+
+// ── AI availability ──
+async function loadAiStatus() {
+  let res;
+  try { res = await (await fetch("/api/ai/status")).json(); }
+  catch { res = { available: false }; }
+
+  const aiBox = $("#ai");
+  const genModels = (res.models || []).filter(m => !m.includes("embed"));
+  const hasGen = res.available && genModels.length > 0;
+  const hasEmbed = res.available && !!res.embed_model;
+
+  if (!res.available || (!hasGen && !hasEmbed)) {
+    aiBox.disabled = true; aiBox.checked = false;
+    $("#ai-note").textContent = res.available ? "no usable model" : "Ollama not running";
+    return;
+  }
+
+  aiBox.disabled = false;
+  const sel = $("#ai-model");
+  sel.innerHTML = "";
+  genModels.forEach(m => {
+    const o = document.createElement("option");
+    o.value = m; o.textContent = m;
+    if (m === res.default) o.selected = true;
+    sel.appendChild(o);
+  });
+
+  if (!hasEmbed) {
+    // Default (embedding) mode unavailable → force creative.
+    $("#ai-creative").checked = true;
+    $("#ai-creative").disabled = true;
+    $("#ai-note").textContent = "embeddings need: ollama pull nomic-embed-text";
+  } else {
+    $("#ai-creative").disabled = !hasGen;
+    $("#ai-note").textContent = "";
+  }
+}
+function syncAiControls() {
+  const on = $("#ai").checked;
+  $("#ai-creative-opt").style.display = on ? "" : "none";
+  const showModel = on && $("#ai-creative").checked;
+  $("#ai-model").style.display = showModel ? "" : "none";
+  $("#ai-model").disabled = !showModel;
+}
+$("#ai").addEventListener("change", syncAiControls);
+$("#ai-creative").addEventListener("change", syncAiControls);
+loadAiStatus();
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) });
+  return r.json();
+}
+function needPath() {
+  if (!$("#path").value.trim()) { $("#org-status").textContent = "Enter a folder path first."; return true; }
+  return false;
+}
+
+// ── Tabs ──
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  $("#panel-" + t.dataset.tab).classList.add("active");
+  if (t.dataset.tab === "history") loadHistory();
+});
+
+// ── Preview ──
+$("#preview").onclick = async () => {
+  if (needPath()) return;
+  $("#org-status").innerHTML = '<span class="spin"></span> scanning…';
+  $("#log").style.display = "none"; $("#progbar").style.display = "none";
+  const res = await post("/api/scan", opts());
+  if (res.error) { $("#org-status").textContent = "⚠ " + res.error; $("#apply").disabled = true; return; }
+  renderPlan(res);
+};
+
+function renderPlan(res) {
+  $("#cd-badge").innerHTML = res.content_detection ? "" : '<span class="badge-off">· content detection off</span>';
+  const body = $("#org-body"); body.innerHTML = "";
+  if (res.count === 0) { body.appendChild(el("div","empty","Nothing to sort here. 🎉")); $("#apply").disabled = true; $("#org-status").textContent = ""; return; }
+  const cats = el("div", "cats");
+  Object.entries(res.by_category).sort((a,b)=>b[1]-a[1]).forEach(([c,n]) =>
+    cats.appendChild(el("div","chip", `${c} <b>${n}</b>`)));
+  body.appendChild(cats);
+  const scroll = el("div", "list-scroll");
+  res.items.forEach(it => {
+    const r = el("div", "row");
+    r.appendChild(el("div","src", it.src));
+    r.appendChild(el("div","arrow", "→"));
+    const dest = el("div","dest");
+    dest.appendChild(el("span","dest-text", it.dest));
+    if (it.ai) dest.appendChild(el("span","ai-tag","AI"));
+    r.appendChild(dest);
+    scroll.appendChild(r);
+  });
+  body.appendChild(scroll);
+  $("#apply").disabled = false;
+  $("#org-status").textContent = `${res.count} file(s) planned`;
+}
+
+// ── Apply (WebSocket) ──
+$("#apply").onclick = () => {
+  if (needPath()) return;
+  $("#apply").disabled = true; $("#preview").disabled = true;
+  const bar = $("#progbar"); bar.style.display = "block"; bar.firstElementChild.style.width = "0%";
+  const log = $("#log"); log.style.display = "block"; log.innerHTML = "";
+  $("#org-status").innerHTML = '<span class="spin"></span> sorting…';
+
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/sort`);
+  ws.onopen = () => ws.send(JSON.stringify(opts()));
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "progress") { bar.firstElementChild.style.width = (m.total ? m.done/m.total*100 : 0) + "%"; }
+    else if (m.type === "file_planned") {
+      const d = el("div","mv", `${m.src} → ${m.dest}`); log.appendChild(d); log.scrollTop = log.scrollHeight;
+    }
+    else if (m.type === "summary") {
+      $("#org-status").innerHTML = `<span class="banner ok">✔ Moved ${m.moved} file(s)` +
+        (m.empty_removed ? `, removed ${m.empty_removed} empty folder(s)` : "") + `</span>`;
+    }
+    else if (m.type === "error") { $("#org-status").innerHTML = `<span class="banner warn">⚠ ${m.message}</span>`; }
+  };
+  ws.onclose = () => { $("#preview").disabled = false; loadHistory(); };
+  ws.onerror = () => { $("#org-status").innerHTML = `<span class="banner warn">⚠ connection error</span>`; $("#preview").disabled = false; };
+};
+
+// ── Duplicates ──
+$("#dup-scan").onclick = async () => {
+  if (needPath()) { $("#dup-status").textContent = "Enter a folder path first."; return; }
+  $("#dup-status").innerHTML = '<span class="spin"></span> hashing…';
+  const res = await post("/api/dedupe", { path: $("#path").value.trim(), recursive: $("#recursive").checked });
+  if (res.error) { $("#dup-status").textContent = "⚠ " + res.error; return; }
+  renderDupes(res);
+};
+function renderDupes(res) {
+  const body = $("#dup-body"); body.innerHTML = "";
+  const has = res.groups.length > 0;
+  $("#dup-move").disabled = !has; $("#dup-trash").disabled = !has;
+  if (!has) { body.appendChild(el("div","empty","No duplicate files found. ✨")); $("#dup-status").textContent = ""; return; }
+  $("#dup-status").innerHTML = `<b>${fmtBytes(res.total_wasted)}</b> reclaimable across ${res.groups.length} group(s)`;
+  res.groups.forEach(g => {
+    const box = el("div","dupgroup");
+    box.appendChild(el("div","head", `<span>${g.paths.length} copies · ${fmtBytes(g.size)} each</span><span>${fmtBytes(g.wasted)} wasted</span>`));
+    g.paths.forEach((p,i) => box.appendChild(el("div", "file" + (i===0?" keep":""), p)));
+    body.appendChild(box);
+  });
+}
+$("#dup-move").onclick = () => applyDupes("move");
+$("#dup-trash").onclick = () => applyDupes("trash");
+async function applyDupes(action) {
+  const verb = action === "move" ? "Move extra copies to DUPLICATES/?" : "Send extra copies to the trash?";
+  if (!confirm(verb)) return;
+  $("#dup-status").innerHTML = '<span class="spin"></span> working…';
+  const res = await post("/api/dedupe/apply", { path: $("#path").value.trim(), action, no_trash: false });
+  let msg = [];
+  if (res.moved) msg.push(`moved ${res.moved}`);
+  if (res.trashed) msg.push(`trashed ${res.trashed}`);
+  if (res.failed) msg.push(`${res.failed} failed`);
+  $("#dup-status").innerHTML = `<span class="banner ok">✔ ${msg.join(", ") || "done"}</span>`;
+  $("#dup-scan").click();
+  loadHistory();
+}
+
+// ── History ──
+async function loadHistory() {
+  if (!$("#path").value.trim()) return;
+  const r = await fetch("/api/history?path=" + encodeURIComponent($("#path").value.trim()));
+  const res = await r.json();
+  if (res.error) return;
+  $("#undo").disabled = !res.can_undo; $("#redo").disabled = !res.can_redo;
+  const body = $("#hist-body"); body.innerHTML = "";
+  if (!res.sessions.length) { body.appendChild(el("div","empty","No operations yet.")); return; }
+  res.sessions.forEach(s => {
+    const h = el("div","hist");
+    h.appendChild(el("div","dot"));
+    h.appendChild(el("div","lbl", s.label));
+    h.appendChild(el("div","meta", `${s.count} file(s) · ${s.timestamp.replace("T"," ")}`));
+    body.appendChild(h);
+  });
+}
+$("#hist-refresh").onclick = loadHistory;
+$("#undo").onclick = async () => {
+  const res = await post("/api/undo", { path: $("#path").value.trim() });
+  if (res.ok) loadHistory();
+};
+$("#redo").onclick = async () => {
+  const res = await post("/api/redo", { path: $("#path").value.trim() });
+  if (res.ok) loadHistory();
+};
+
+// ── Folder picker ──
+let modalPath = null;
+async function openBrowse(path) {
+  const r = await fetch("/api/browse" + (path ? "?path=" + encodeURIComponent(path) : ""));
+  const res = await r.json();
+  modalPath = res.path;
+  $("#modal-cur").textContent = res.path;
+  const dirs = $("#modal-dirs"); dirs.innerHTML = "";
+  if (res.parent) {
+    const up = el("div","diritem","⬆️ <span>.. (parent)</span>");
+    up.onclick = () => openBrowse(res.parent); dirs.appendChild(up);
+  }
+  res.dirs.forEach(d => {
+    const item = el("div","diritem",`📁 <span>${d}</span>`);
+    item.onclick = () => openBrowse(res.path.replace(/\/$/,"") + "/" + d);
+    dirs.appendChild(item);
+  });
+  if (!res.dirs.length && !res.parent) dirs.appendChild(el("div","empty","No subfolders."));
+}
+$("#browse").onclick = () => { $("#modal").classList.add("open"); openBrowse($("#path").value.trim() || null); };
+$("#modal-cancel").onclick = () => $("#modal").classList.remove("open");
+$("#modal").onclick = e => { if (e.target === $("#modal")) $("#modal").classList.remove("open"); };
+$("#modal-use").onclick = () => { $("#path").value = modalPath; $("#modal").classList.remove("open"); loadHistory(); };
+</script>
+</body>
+</html>
