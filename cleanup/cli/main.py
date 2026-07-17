@@ -26,6 +26,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.theme import Theme
 
+from ..ai.backends import resolve_embedder
 from ..ai.classify import AiInteraction, CreativeClassifier, EmbeddingClassifier
 from ..ai.ollama import OllamaClient
 from ..core import detect
@@ -136,8 +137,11 @@ examples:
                              "needs an embedding model like nomic-embed-text)")
     parser.add_argument("--ai-creative", action="store_true",
                         help="Use a generative LLM that can invent new categories (vs. embeddings)")
+    parser.add_argument("--ai-backend", choices=["auto", "local", "ollama"], default="auto",
+                        help="Embedding backend for --ai: local (in-process, no server), "
+                             "ollama, or auto (default: prefer local)")
     parser.add_argument("--ai-model", metavar="MODEL",
-                        help="Ollama model for --ai-creative (default: auto-detect)")
+                        help="Ollama model for --ai-creative / ollama backend (default: auto-detect)")
     parser.add_argument("--clean-empty", action="store_true",
                         help="Remove empty subdirectories after sorting")
     parser.add_argument("--no-trash", action="store_true",
@@ -264,28 +268,26 @@ def _build_ai_interaction(args, ruleset, base):
     """Wrap ``base`` with an AI classifier, or fall back if unavailable.
 
     Default (``--ai``): deterministic embedding similarity over a fixed category
-    list. ``--ai-creative``: a generative LLM that may invent categories.
+    list, running either in-process (local) or via Ollama.
+    ``--ai-creative``: a generative LLM (Ollama) that may invent categories.
     """
-    client = OllamaClient(model=args.ai_model)
-    if not client.available():
-        console.print("  [warning]• 🤖 AI requested but Ollama isn't reachable "
-                     "(start it with `ollama serve`) — continuing without it[/warning]")
-        return base
-
     if args.ai_creative:
-        if not client.resolve_model():
-            console.print("  [warning]• 🤖 No generative model found — continuing without AI[/warning]")
+        client = OllamaClient(model=args.ai_model)
+        if not client.available() or not client.resolve_model():
+            console.print("  [warning]• 🤖 --ai-creative needs Ollama with a generative model "
+                         "— continuing without AI[/warning]")
             return base
         classifier = CreativeClassifier(client, list(ruleset.mime_categories.keys()))
         console.print(f"  [cyan]• 🤖 AI creative mode (LLM: {client.model})[/cyan]")
-    else:
-        if not client.pick_embed_model():
-            console.print("  [warning]• 🤖 --ai needs an embedding model: "
-                         "`ollama pull nomic-embed-text` (or use --ai-creative)[/warning]")
-            return base
-        classifier = EmbeddingClassifier(client)
-        console.print(f"  [cyan]• 🤖 AI zero-shot (embeddings: {client.embed_model})[/cyan]")
+        return AiInteraction(classifier, wrap=base or None)
 
+    # Default --ai: embedding similarity via the resolved backend.
+    embedder, threshold, label = resolve_embedder(args.ai_backend, ollama_model=args.ai_model)
+    if embedder is None:
+        console.print(f"  [warning]• 🤖 {label} — continuing without AI[/warning]")
+        return base
+    classifier = EmbeddingClassifier(embedder, threshold=threshold)
+    console.print(f"  [cyan]• 🤖 AI zero-shot embeddings — {label}[/cyan]")
     return AiInteraction(classifier, wrap=base or None)
 
 

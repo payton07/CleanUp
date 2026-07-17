@@ -12,7 +12,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from ..ai.backends import resolve_embedder
 from ..ai.classify import AiInteraction, CreativeClassifier, EmbeddingClassifier
+from ..ai.local_embed import LocalEmbedder
 from ..ai.ollama import OllamaClient
 from ..core import detect
 from ..core.collect import collect_files
@@ -51,18 +53,15 @@ def _ai_interaction(ruleset, opts: "SortOptions") -> AiInteraction | None:
     """
     if not (opts.ai or opts.ai_creative):
         return None
-    client = OllamaClient(model=opts.ai_model)
-    if not client.available():
-        return None
     if opts.ai_creative:
-        if not client.resolve_model():
+        client = OllamaClient(model=opts.ai_model)
+        if not client.available() or not client.resolve_model():
             return None
-        classifier = CreativeClassifier(client, list(ruleset.mime_categories.keys()))
-    else:
-        if not client.pick_embed_model():
-            return None
-        classifier = EmbeddingClassifier(client)
-    return AiInteraction(classifier)
+        return AiInteraction(CreativeClassifier(client, list(ruleset.mime_categories.keys())))
+    embedder, threshold, _label = resolve_embedder("auto", ollama_model=opts.ai_model)
+    if embedder is None:
+        return None
+    return AiInteraction(EmbeddingClassifier(embedder, threshold=threshold))
 
 
 # ─── PATH SAFETY ────────────────────────────────────────────────────────────
@@ -255,17 +254,17 @@ def dedupe_apply(directory: Path, action: str, no_trash: bool) -> dict:
 # ─── AI STATUS ──────────────────────────────────────────────────────────────
 
 def ai_status() -> dict:
-    """Report whether the local Ollama server is reachable and its models,
-    including whether an embedding model (needed for the default mode) exists."""
+    """Report available AI backends: the in-process local embedder and/or a
+    reachable Ollama server (models, generative default, embedding model)."""
+    local = LocalEmbedder.available()
     client = OllamaClient()
-    if not client.available():
-        return {"available": False, "models": [], "embed_model": None, "default": None}
-    models = client.list_models()
+    ollama_up = client.available()
     return {
-        "available": True,
-        "models": models,
-        "default": client.resolve_model(),
-        "embed_model": client.pick_embed_model(),
+        "available": local or ollama_up,
+        "local_embed": local,
+        "models": client.list_models() if ollama_up else [],
+        "default": client.resolve_model() if ollama_up else None,
+        "embed_model": client.pick_embed_model() if ollama_up else None,
     }
 
 
