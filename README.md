@@ -6,10 +6,10 @@
 
 -   **Content-Aware Detection**: Reads each file's **magic bytes** (via `libmagic`) to classify it by its *actual* content — so a JPEG renamed `photo.txt` still lands in `IMAGES/`. Falls back to extension-based detection when `libmagic` isn't installed.
 -   **🧠 Smart Sorting (Context-Aware)**: Groups related files into "Themes" based on keywords in their names or parent folders. No more scattering your project files by type!
--   **🤖 Local AI Tagging (optional)**: Re-tags files in the generic buckets (`TEXTS`, `OTHERS`) into meaningful categories — an invoice → `INVOICES`, a log → `LOGS` — using a locally-running [Ollama](https://ollama.com). Two modes:
-    -   `--ai` (default): **deterministic zero-shot** via an embedding model — encodes the file and each candidate category, picks the nearest by cosine similarity. Always returns a name from a fixed list (no hallucinated typos), and fast (~ms/file).
-    -   `--ai-creative`: a **generative LLM** that may invent new category names. More flexible, slower (~seconds/file).
-    -   Fully offline, no API key; if Ollama isn't running the feature simply switches off.
+-   **🤖 Local AI Tagging (optional)**: Re-tags files in the generic buckets (`TEXTS`, `OTHERS`) into meaningful categories — an invoice → `INVOICES`, a log → `LOGS`. Two modes:
+    -   `--ai` (default): **deterministic zero-shot** — encodes the file and each candidate category with an embedding model, picks the nearest by cosine similarity. Always returns a name from a fixed list (no hallucinated typos), fast (~ms/file). Runs **in-process** via `fastembed` (`pip install cleanup-cli[embed]`, no server) **or** via Ollama — `--ai-backend local|ollama|auto`.
+    -   `--ai-creative`: a **generative LLM** (Ollama) that may invent new category names. More flexible, slower (~seconds/file).
+    -   Fully offline, no API key; if no backend is available the feature simply switches off.
 -   **🗂️ Layout Schemes**: Organize by `type` (default), by `date` (`IMAGES/2026/07/`), or by `size` bucket — `--by date|size`.
 -   **♊ Duplicate Finder**: Detects identical files by **content hash** (BLAKE2, with a size pre-filter), reports reclaimable space, and can move or trash extra copies — `--dedupe report|move|trash`.
 -   **🤝 Interactive Mode**: An "Assistant" mode that asks for your confirmation for themes, unrecognized files, and project folder protection.
@@ -65,20 +65,29 @@ The **🤖 AI** toggle appears automatically when Ollama is running, with a mode
 
 ## 🤖 Local AI setup (optional)
 
-The AI tagging needs no extra Python packages (it uses a dependency-free HTTP
-client) — only a running [Ollama](https://ollama.com) server and a model:
+There are two ways to run the default `--ai` (embedding) mode:
+
+**A) In-process, no server (simplest):**
 
 ```bash
-ollama serve                       # start the local server (http://localhost:11434)
+pip install "cleanup-cli[embed]"    # adds fastembed (ONNX, CPU)
+cleanup ~/Downloads --ai            # downloads a ~130 MB model once, then offline
+```
 
-# Default mode (--ai) uses embeddings — pull a small embedding model:
-ollama pull nomic-embed-text        # ~274 MB
-cleanup ~/Downloads --ai
+**B) Via Ollama** (also required for `--ai-creative`):
+
+```bash
+ollama serve                        # start the local server (http://localhost:11434)
+ollama pull nomic-embed-text        # embedding model for --ai (~274 MB)
+cleanup ~/Downloads --ai --ai-backend ollama
 
 # Creative mode uses a generative LLM (can invent categories):
 ollama pull llama3                  # or mistral, qwen2.5, …
 cleanup ~/Downloads --ai-creative --ai-model mistral
 ```
+
+`--ai-backend auto` (default) prefers the in-process backend if `fastembed` is
+installed, otherwise Ollama.
 
 The default embedding mode is deterministic (categories from a fixed list, no
 typos) and much faster than generation. Nothing leaves your machine, and if
@@ -102,9 +111,10 @@ CLEANUP_AI_THRESHOLD=0.60 cleanup ~/Downloads --ai
 -   `--by`, `-b`: Folder layout: `type` (default), `date` (YYYY/MM), or `size`.
 -   `--dedupe [ACTION]`: Find duplicate files by content. `ACTION`: `report` (default), `move` (to `DUPLICATES/`, undoable), `trash`.
 -   `--interactive`, `-i`: Enable interactive assistant mode.
--   `--ai`: Categorize ambiguous files by embedding similarity (deterministic; needs an embedding model).
--   `--ai-creative`: Use a generative LLM that can invent new categories.
--   `--ai-model MODEL`: Ollama model for `--ai-creative` (default: auto-detect).
+-   `--ai`: Categorize ambiguous files by embedding similarity (deterministic).
+-   `--ai-backend auto|local|ollama`: Embedding backend for `--ai` (default: `auto`, prefers in-process `local`).
+-   `--ai-creative`: Use a generative LLM (Ollama) that can invent new categories.
+-   `--ai-model MODEL`: Ollama model for `--ai-creative` / `ollama` backend (default: auto-detect).
 -   `--recursive`, `-r`: Scan subdirectories (includes project detection).
 -   `--dry-run`, `-n`: Preview mode (no files are moved).
 -   `--clean-empty`: Remove empty subdirectories after sorting.
@@ -179,9 +189,11 @@ cleanup/
 │   ├── trash.py      # recoverable removal (send2trash)
 │   ├── runlog.py     # append-only .cleanup.log
 │   └── manifest.py   # the persisted move record
-├── ai/          # optional local Ollama tagging (opt-in, offline)
-│   ├── ollama.py     # dependency-free HTTP client (generate + embeddings)
-│   └── classify.py   # Embedding (zero-shot) & Creative (LLM) classifiers + AiInteraction
+├── ai/          # optional local AI tagging (opt-in, offline)
+│   ├── ollama.py       # dependency-free Ollama HTTP client (generate + embeddings)
+│   ├── local_embed.py  # in-process embedding backend (fastembed, no server)
+│   ├── backends.py     # embedding backend resolver (local / ollama / auto)
+│   └── classify.py     # Embedding (zero-shot) & Creative (LLM) classifiers + AiInteraction
 ├── cli/         # Rich terminal interface built on core/
 └── web/         # FastAPI backend + self-contained frontend
     ├── service.py    # JSON bridge to the core engine
