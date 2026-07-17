@@ -321,7 +321,7 @@ async function loadAiStatus() {
   const aiBox = $("#ai");
   const genModels = (res.models || []).filter(m => !m.includes("embed"));
   const hasGen = res.available && genModels.length > 0;
-  const hasEmbed = res.available && !!res.embed_model;
+  const hasEmbed = res.available && (!!res.embed_model || !!res.local_embed);
 
   if (!res.available || (!hasGen && !hasEmbed)) {
     aiBox.disabled = true; aiBox.checked = false;
@@ -343,7 +343,7 @@ async function loadAiStatus() {
     // Default (embedding) mode unavailable → force creative.
     $("#ai-creative").checked = true;
     $("#ai-creative").disabled = true;
-    $("#ai-note").textContent = "embeddings need: ollama pull nomic-embed-text";
+    $("#ai-note").textContent = "embeddings need: pip install cleanup-cli[embed] (or ollama pull nomic-embed-text)";
   } else {
     $("#ai-creative").disabled = !hasGen;
     $("#ai-note").textContent = "";

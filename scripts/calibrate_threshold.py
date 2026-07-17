@@ -19,8 +19,8 @@ import argparse
 import statistics
 from pathlib import Path
 
+from cleanup.ai.backends import resolve_embedder
 from cleanup.ai.classify import DEFAULT_AI_CATEGORIES, EmbeddingClassifier
-from cleanup.ai.ollama import OllamaClient
 
 NONE_LABEL = "_NONE_"
 
@@ -88,7 +88,8 @@ def build_corpus(root: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--corpus", type=Path, default=None)
-    parser.add_argument("--model", default=None, help="embedding model (default: auto)")
+    parser.add_argument("--backend", choices=["auto", "local", "ollama"], default="auto")
+    parser.add_argument("--model", default=None, help="Ollama embedding model (ollama backend)")
     args = parser.parse_args()
 
     root = args.corpus
@@ -98,15 +99,12 @@ def main() -> None:
         root = Path(tempfile.mkdtemp(prefix="cleanup_calib_"))
         build_corpus(root)
 
-    client = OllamaClient(model=args.model)
-    if not client.available():
-        raise SystemExit("Ollama is not reachable — start it with `ollama serve`.")
-    if not (args.model or client.pick_embed_model()):
-        raise SystemExit("No embedding model found — `ollama pull nomic-embed-text`.")
-    if args.model:
-        client.embed_model = args.model
+    embedder, threshold, label = resolve_embedder(args.backend, ollama_model=args.model)
+    if embedder is None:
+        raise SystemExit(label)
+    print(f"backend: {label}  (current threshold: {threshold})")
 
-    clf = EmbeddingClassifier(client, DEFAULT_AI_CATEGORIES)
+    clf = EmbeddingClassifier(embedder, DEFAULT_AI_CATEGORIES)
 
     # Score every file: (true_label, predicted_label, score)
     rows: list[tuple[str, str | None, float]] = []
@@ -119,7 +117,7 @@ def main() -> None:
                 pred, score = clf.best_match(f)
                 rows.append((true, pred, score))
 
-    print(f"\nCorpus: {root}  ({len(rows)} files, model: {client.embed_model})\n")
+    print(f"\nCorpus: {root}  ({len(rows)} files, model: {embedder.embed_model})\n")
 
     # Per-file detail
     print(f"{'true':<10} {'predicted':<12} {'score':>6}  ok")
