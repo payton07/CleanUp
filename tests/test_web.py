@@ -105,3 +105,18 @@ def test_ai_correct_endpoint(tmp_path: Path, monkeypatch):
 def test_ai_correct_invalid_dir():
     r = client.post("/api/ai/correct", json={"path": "/no/such/dir", "src": "x", "category": "Y"})
     assert r.status_code == 400
+
+
+def test_stats_endpoint(tmp_path: Path):
+    (tmp_path / "a.txt").write_text("hello")
+    (tmp_path / "app.py").write_text("print(1)")
+    r = client.get("/api/stats", params={"path": str(tmp_path)}).json()
+    assert r["total_files"] == 2
+    cats = {c["category"] for c in r["categories"]}
+    assert "TEXTS" in cats and "SCRIPTS" in cats
+    assert isinstance(r["by_month"], dict)
+
+
+def test_stats_invalid_dir():
+    r = client.get("/api/stats", params={"path": "/no/such/dir"})
+    assert r.status_code == 400

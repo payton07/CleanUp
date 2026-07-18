@@ -11,6 +11,7 @@
     -   `--ai-creative`: a **generative LLM** (Ollama) that may invent new category names. More flexible, slower (~seconds/file).
     -   `--ai-adaptive`: **learns from your corrections** — when you re-file something, a similar file is filed the same way next time (a local, embedding-based memory). Teach from the CLI (`--ai-teach FILE CATEGORY`) or by editing a category in the web preview.
     -   Fully offline, no API key; if no backend is available the feature simply switches off.
+-   **📊 Insights**: `--stats` (CLI) or the **Insights** tab (web) summarizes a folder — totals, a per-category size breakdown, the largest files, duplicate-reclaimable space, and a by-month histogram.
 -   **👀 Watch Mode**: `--watch` keeps a folder tidy continuously — new files are sorted as they arrive, once they finish downloading (size-stability debounce). Every move is undoable and logged; stops cleanly on Ctrl+C or `kill`.
 -   **🗂️ Layout Schemes**: Organize by `type` (default), by `date` (`IMAGES/2026/07/`), or by `size` bucket — `--by date|size`.
 -   **♊ Duplicate Finder**: Detects identical files by **content hash** (BLAKE2, with a size pre-filter), reports reclaimable space, and can move or trash extra copies — `--dedupe report|move|trash`.
@@ -132,6 +133,7 @@ CLEANUP_AI_THRESHOLD=0.60 cleanup ~/Downloads --ai
 -   `--ai-adaptive`: Learn from corrections — reuse a remembered category for similar files.
 -   `--ai-teach FILE CATEGORY`: Teach the adaptive AI that `FILE` belongs in `CATEGORY`.
 -   `--ai-model MODEL`: Ollama model for `--ai-creative` / `ollama` backend (default: auto-detect).
+-   `--stats`: Show a summary of the directory (categories, sizes, largest files, duplicates, by month).
 -   `--watch`, `-w`: Watch the directory and sort new files continuously (Ctrl+C to stop).
 -   `--interval SEC`: Polling interval for `--watch` (default: 2.0s).
 -   `--recursive`, `-r`: Scan subdirectories (includes project detection).
@@ -204,6 +206,7 @@ cleanup/
 │   ├── dedupe.py     # content-hash duplicate detection
 │   ├── engine.py     # orchestrator, emits progress events
 │   ├── watch.py      # polling watch mode (sort new files continuously)
+│   ├── stats.py      # directory insights (categories, sizes, duplicates, months)
 │   ├── events.py     # event dataclasses
 │   ├── history.py    # multi-level undo/redo sessions
 │   ├── trash.py      # recoverable removal (send2trash)

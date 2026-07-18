@@ -42,6 +42,7 @@ from ..core.history import HistoryStore
 from ..core.manifest import MoveRecord
 from ..core.organize import Scheme
 from ..core.runlog import log_run
+from ..core.stats import compute_stats
 from ..core.watch import Watcher
 
 CUSTOM_THEME = Theme({
@@ -161,6 +162,8 @@ examples:
     parser.add_argument("--dedupe", nargs="?", const="report",
                         choices=["report", "move", "trash"], metavar="ACTION",
                         help="Find duplicate files by content; ACTION: report (default), move, trash")
+    parser.add_argument("--stats", action="store_true",
+                        help="Show a summary of the directory (categories, sizes, duplicates)")
     parser.add_argument("--undo", "-u", action="store_true",
                         help="Roll back the last sort (multi-level)")
     parser.add_argument("--redo", action="store_true",
@@ -424,6 +427,55 @@ def _build_ai_interaction(args, ruleset, base):
     return AiInteraction(classifier, wrap=base or None)
 
 
+def _run_stats(directory: Path) -> None:
+    ruleset, _ = load_ruleset(directory)
+    with console.status("[info]Analyzing…[/info]"):
+        stats = compute_stats(directory, ruleset)
+
+    if stats.total_files == 0:
+        console.print("\n  [info]ℹ Empty directory.[/info]")
+        return
+
+    console.print(Panel.fit(
+        f"[bold]{stats.total_files}[/bold] files · [bold]{_format_bytes(stats.total_size)}[/bold]"
+        + (f"\n[warning]{stats.duplicate_groups} duplicate group(s) · "
+           f"{_format_bytes(stats.reclaimable)} reclaimable[/warning]"
+           if stats.duplicate_groups else ""),
+        title="📊 Insights", border_style="blue",
+    ))
+
+    # Category breakdown with size bars.
+    max_size = max((c.size for c in stats.categories), default=1) or 1
+    table = Table(title="By category", box=None)
+    table.add_column("Category", style="blue")
+    table.add_column("Files", justify="right", style="cyan")
+    table.add_column("Size", justify="right")
+    table.add_column("", style="magenta")
+    for c in stats.categories:
+        bar = "█" * max(1, round(c.size / max_size * 24)) if c.size else ""
+        table.add_row(c.category, str(c.count), _format_bytes(c.size), bar)
+    console.print("\n")
+    console.print(table)
+
+    # Largest files.
+    if stats.largest:
+        big = Table(title="Largest files", box=None)
+        big.add_column("File", style="cyan")
+        big.add_column("Size", justify="right", style="magenta")
+        for rel, size in stats.largest[:8]:
+            big.add_row(rel, _format_bytes(size))
+        console.print("\n")
+        console.print(big)
+
+    # Activity by month.
+    if stats.by_month:
+        max_m = max(stats.by_month.values()) or 1
+        console.print("\n  [bold]Files by month[/bold]")
+        for month, count in stats.by_month.items():
+            bar = "▉" * max(1, round(count / max_m * 30))
+            console.print(f"  [dim]{month}[/dim]  [blue]{bar}[/blue] {count}")
+
+
 def _run_undo(directory: Path) -> None:
     ruleset, _ = load_ruleset(directory)
     store = HistoryStore(directory)
@@ -566,6 +618,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.ai_teach:
         _run_teach(args, directory)
+    elif args.stats:
+        _run_stats(directory)
     elif args.undo:
         _run_undo(directory)
     elif args.redo:
