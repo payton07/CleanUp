@@ -9,6 +9,7 @@
 -   **🤖 Local AI Tagging (optional)**: Re-tags files in the generic buckets (`TEXTS`, `OTHERS`) into meaningful categories — an invoice → `INVOICES`, a log → `LOGS`. Two modes:
     -   `--ai` (default): **deterministic zero-shot** — encodes the file and each candidate category with an embedding model, picks the nearest by cosine similarity. Always returns a name from a fixed list (no hallucinated typos), fast (~ms/file). Runs **in-process** via `fastembed` (`pip install cleanup-cli[embed]`, no server) **or** via Ollama — `--ai-backend local|ollama|auto`.
     -   `--ai-creative`: a **generative LLM** (Ollama) that may invent new category names. More flexible, slower (~seconds/file).
+    -   `--ai-images`: **sub-sorts images by content** — screenshots, photos, memes, documents, diagrams, art — into `IMAGES/<type>/`, using local CLIP (`pip install cleanup-cli[image]`). No cloud.
     -   `--ai-adaptive`: **learns from your corrections** — when you re-file something, a similar file is filed the same way next time (a local, embedding-based memory). Teach from the CLI (`--ai-teach FILE CATEGORY`) or by editing a category in the web preview.
     -   Fully offline, no API key; if no backend is available the feature simply switches off.
 -   **📊 Insights**: `--stats` (CLI) or the **Insights** tab (web) summarizes a folder — totals, a per-category size breakdown, the largest files, duplicate-reclaimable space, and a by-month histogram.
@@ -133,6 +134,7 @@ CLEANUP_AI_THRESHOLD=0.60 cleanup ~/Downloads --ai
 -   `--ai-creative`: Use a generative LLM (Ollama) that can invent new categories.
 -   `--ai-adaptive`: Learn from corrections — reuse a remembered category for similar files.
 -   `--ai-teach FILE CATEGORY`: Teach the adaptive AI that `FILE` belongs in `CATEGORY`.
+-   `--ai-images`: Sub-sort images by content into `IMAGES/<type>/` (local CLIP).
 -   `--ai-model MODEL`: Ollama model for `--ai-creative` / `ollama` backend (default: auto-detect).
 -   `--stats`: Show a summary of the directory (categories, sizes, largest files, duplicates, by month).
 -   `--watch`, `-w`: Watch the directory and sort new files continuously (Ctrl+C to stop).
@@ -254,7 +256,8 @@ cleanup/
 │   ├── backends.py     # embedding backend resolver (local / ollama / auto)
 │   ├── classify.py     # Embedding (zero-shot) & Creative (LLM) classifiers + AiInteraction
 │   ├── memory.py       # persistent store of user corrections (~/.config/cleanup)
-│   └── adaptive.py     # AdaptiveClassifier — learns from corrections
+│   ├── adaptive.py     # AdaptiveClassifier — learns from corrections
+│   └── images.py       # CLIP image sub-sorting (screenshots/photos/… → IMAGES/<type>)
 ├── cli/         # Rich terminal interface built on core/
 └── web/         # FastAPI backend + self-contained frontend
     ├── service.py    # JSON bridge to the core engine
