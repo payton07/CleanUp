@@ -13,6 +13,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 pyinstaller --onefile --name "$NAME" --clean --noconfirm \
+  --paths . \
+  --hidden-import cleanup.ai.adaptive \
+  --hidden-import cleanup.ai.memory \
   --collect-all pydantic \
   --collect-all pydantic_core \
   --exclude-module fastembed \
