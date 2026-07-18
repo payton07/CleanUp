@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from cleanup.web.server import app  # noqa: E402
 
-client = TestClient(app)
+# base_url sets the Host header; the server's host guard allows localhost.
+client = TestClient(app, base_url="http://localhost")
 
 
 def test_index_served():
@@ -120,3 +121,15 @@ def test_stats_endpoint(tmp_path: Path):
 def test_stats_invalid_dir():
     r = client.get("/api/stats", params={"path": "/no/such/dir"})
     assert r.status_code == 400
+
+
+def test_foreign_host_is_rejected():
+    # DNS-rebinding protection: a non-localhost Host header → 403.
+    r = client.get("/api/browse", headers={"host": "evil.com"})
+    assert r.status_code == 403
+
+
+def test_localhost_variants_allowed():
+    for host in ("localhost", "127.0.0.1", "127.0.0.1:8765"):
+        r = client.get("/api/browse", headers={"host": host})
+        assert r.status_code == 200

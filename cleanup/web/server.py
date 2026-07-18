@@ -9,8 +9,9 @@ from __future__ import annotations
 import asyncio
 import webbrowser
 from pathlib import Path
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -19,7 +20,30 @@ from .service import SortOptions
 
 _STATIC = Path(__file__).parent / "static"
 
+# Only these hostnames may reach the server. Validating the Host header defeats
+# DNS-rebinding (an attacker's domain rebound to 127.0.0.1 carries its own name),
+# and the WebSocket Origin check below defeats cross-origin CSRF — both matter
+# because the endpoints perform destructive filesystem operations.
+_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
 app = FastAPI(title="CleanUp", docs_url=None, redoc_url=None)
+
+
+def _hostname(value: str | None) -> str:
+    """Extract a bare hostname from a Host header or Origin URL (no port/brackets)."""
+    if not value:
+        return ""
+    if "://" in value:
+        value = urlparse(value).hostname or ""
+    return value.rsplit(":", 1)[0].strip("[]") if value else ""
+
+
+@app.middleware("http")
+async def _guard_host(request: Request, call_next):
+    hostname = _hostname(request.headers.get("host"))
+    if hostname and hostname not in _ALLOWED_HOSTS:
+        return JSONResponse({"error": "forbidden host"}, status_code=403)
+    return await call_next(request)
 
 
 # ─── REQUEST MODELS ─────────────────────────────────────────────────────────
@@ -154,6 +178,13 @@ def api_dedupe_apply(body: DedupeApplyBody) -> JSONResponse:
 @app.websocket("/ws/sort")
 async def ws_sort(websocket: WebSocket) -> None:
     await websocket.accept()
+    # Reject cross-origin WebSocket connections (WS is exempt from CORS, so a
+    # malicious page could otherwise drive destructive sorts). No Origin header
+    # means a non-browser client, which is allowed.
+    origin = websocket.headers.get("origin")
+    if origin and _hostname(origin) not in _ALLOWED_HOSTS:
+        await websocket.close(code=1008)
+        return
     try:
         request = await websocket.receive_json()
         try:

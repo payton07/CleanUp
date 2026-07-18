@@ -78,3 +78,11 @@ def test_engine_applies_rule_over_detection(tmp_path: Path):
     sort_files(tmp_path, files, ruleset)
     assert (tmp_path / "INVOICES" / "acme.facture.txt").exists()
     assert not (tmp_path / "TEXTS").exists()
+
+
+def test_parse_size_bare_units():
+    assert parse_size("1K") == 1024
+    assert parse_size("500m") == 500 * 1024**2
+    assert parse_size("2g") == 2 * 1024**3
+    assert parse_size("1KB") == 1024
+    assert parse_size("1x") is None

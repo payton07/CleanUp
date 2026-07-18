@@ -257,8 +257,13 @@ def _run_sort(args: argparse.Namespace, directory: Path) -> None:
                 rel_dest = _safe_relpath(event.dest, directory)
                 if event.dry_run:
                     console.print(f"  [dry]DRY-RUN[/dry]  {rel_src} [bold]→[/bold] [category]{rel_dest}[/category]")
-            elif isinstance(event, FileSkipped) and args.dry_run:
-                console.print(f"  [error]SKIPPED[/error]  {_safe_relpath(event.src, directory)}")
+            elif isinstance(event, FileSkipped):
+                # Always surface real errors; only show routine skips in dry-run.
+                if event.reason in ("error", "trash-failed"):
+                    console.print(f"  [warning]⚠ SKIPPED[/warning] {_safe_relpath(event.src, directory)} "
+                                 f"[dim]({event.reason})[/dim]")
+                elif args.dry_run:
+                    console.print(f"  [error]SKIPPED[/error]  {_safe_relpath(event.src, directory)}")
             elif isinstance(event, ProgressEvent):
                 progress.update(task, completed=event.done)
 
@@ -337,13 +342,17 @@ def _run_watch(args: argparse.Namespace, directory: Path) -> None:
         counters["total"] += len(manifest)
         log_run(directory, f"watch: sorted {len(manifest)} file(s)")
 
+    def on_error(exc: Exception) -> None:
+        console.print(f"  [warning]⚠ watch tick error (continuing): {exc}[/warning]")
+        log_run(directory, f"watch error: {exc}")
+
     watcher = Watcher(
         directory, ruleset,
         recursive=args.recursive, filter_exts=filter_exts,
         conflict=ConflictStrategy(args.conflict), smart=args.smart,
         scheme=Scheme(args.by), use_trash=not args.no_trash,
         interaction=interaction, poll_interval=args.interval,
-        on_event=on_event, on_sorted=on_sorted,
+        on_event=on_event, on_sorted=on_sorted, on_error=on_error,
     )
     # Stop cleanly on Ctrl+C (SIGINT) and on `kill` (SIGTERM, e.g. launchd/systemd).
     # Explicit handlers also override an inherited SIG_IGN on backgrounded jobs.

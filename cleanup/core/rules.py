@@ -26,13 +26,15 @@ _DURATION_DAYS = {"d": 1.0, "w": 7.0, "m": 30.0, "y": 365.0}
 
 
 def parse_size(value: object) -> int | None:
-    """Parse '1GB', '500 MB', 2048 → bytes."""
+    """Parse '1GB', '500 MB', '1K', 2048 → bytes. Unparseable → None."""
     if isinstance(value, (int, float)):
         return int(value)
-    m = re.fullmatch(r"\s*([\d.]+)\s*([KMGT]?B)?\s*", str(value), re.IGNORECASE)
+    # Accept an optional unit letter with or without a trailing 'B' (1K == 1KB).
+    m = re.fullmatch(r"\s*([\d.]+)\s*([KMGT]?)B?\s*", str(value), re.IGNORECASE)
     if not m:
         return None
-    return int(float(m.group(1)) * _SIZE_UNITS[(m.group(2) or "B").upper()])
+    unit = (m.group(2) or "").upper() + "B" if m.group(2) else "B"
+    return int(float(m.group(1)) * _SIZE_UNITS[unit])
 
 
 def parse_duration_days(value: object) -> float | None:

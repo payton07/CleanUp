@@ -64,6 +64,17 @@ class Interaction:
 OnEvent = Callable[[Event], None]
 
 
+def _safe_category(category: str) -> str:
+    """Neutralise path traversal in a category name while allowing nested
+    categories (e.g. ``IMAGES/SCREENSHOTS``). Drops empty/``.``/``..`` parts and
+    any absolute/drive prefix; falls back to ``OTHERS`` if nothing remains."""
+    parts = [
+        p for p in str(category).replace("\\", "/").split("/")
+        if p not in ("", ".", "..")
+    ]
+    return "/".join(parts) or OTHERS
+
+
 def sort_files(
     directory: Path,
     files: list[Path],
@@ -93,66 +104,82 @@ def sort_files(
     total = len(files)
     theme_decisions: dict[str, bool] = {}
     dynamic_managed = set(ruleset.managed_dirs)
+    planned: set[Path] = set()  # dest paths reserved this run (dry-run collision sim)
 
     emit(ScanStarted(total=total))
 
     for index, file in enumerate(files, start=1):
-        # A user rule, if it matches, is authoritative (skips detection + AI).
-        rule_category = match_rule(file, ruleset.rules)
-        category = rule_category if rule_category is not None else detect_category(file, ruleset)
-        theme = detect_theme(file, ruleset) if smart else None
+        try:
+            # A user rule, if it matches, is authoritative (skips detection + AI).
+            rule_category = match_rule(file, ruleset.rules)
+            category = rule_category if rule_category is not None else detect_category(file, ruleset)
+            theme = detect_theme(file, ruleset) if smart else None
 
-        # Theme confirmation (cached per theme).
-        if theme is not None:
-            if theme not in theme_decisions:
-                theme_decisions[theme] = interaction.confirm_theme(file, theme)
-            if not theme_decisions[theme]:
-                theme = None
+            # Theme confirmation (cached per theme).
+            if theme is not None:
+                if theme not in theme_decisions:
+                    theme_decisions[theme] = interaction.confirm_theme(file, theme)
+                if not theme_decisions[theme]:
+                    theme = None
 
-        # Unknown handling (rules never yield OTHERS unless explicitly set).
-        if rule_category is None and category == OTHERS:
-            decision = interaction.handle_unknown(file)
-            if decision.action == "skip":
+            # Unknown handling (rules never yield OTHERS unless explicitly set).
+            if rule_category is None and category == OTHERS:
+                decision = interaction.handle_unknown(file)
+                if decision.action == "skip":
+                    skipped += 1
+                    emit(FileSkipped(src=file, reason="unknown"))
+                    emit(Progress(done=index, total=total))
+                    continue
+                if decision.action == "category" and decision.category:
+                    category = decision.category
+
+            # Optional AI refinement of ambiguous categories — skipped when a rule
+            # already decided the category.
+            if rule_category is None:
+                category = interaction.refine_category(file, category)
+
+            # Neutralise path traversal from any category source.
+            category = _safe_category(category)
+            dynamic_managed.add(category)
+
+            dest_dir = directory / organizer(file, category, theme)
+            target = dest_dir / file.name
+
+            strategy = conflict_strategy
+            if target in planned or target.exists():
+                strategy = interaction.resolve_conflict(target, conflict_strategy)
+
+            resolved = resolve_conflict(target, strategy, planned)
+            if resolved is None:
                 skipped += 1
-                emit(FileSkipped(src=file, reason="unknown"))
+                emit(FileSkipped(src=file, reason="conflict"))
                 emit(Progress(done=index, total=total))
                 continue
-            if decision.action == "category" and decision.category:
-                category = decision.category
-                dynamic_managed.add(category)
 
-        # Optional AI refinement of ambiguous categories — skipped when a rule
-        # already decided the category.
-        if rule_category is None:
-            category = interaction.refine_category(file, category)
-        dynamic_managed.add(category)
+            emit(FilePlanned(
+                src=file, dest=resolved, category=category, theme=theme, dry_run=dry_run,
+            ))
 
-        dest_dir = directory / organizer(file, category, theme)
-        target = dest_dir / file.name
-
-        strategy = conflict_strategy
-        if target.exists():
-            strategy = interaction.resolve_conflict(target, conflict_strategy)
-
-        resolved = resolve_conflict(target, strategy)
-        if resolved is None:
+            if dry_run:
+                planned.add(resolved)
+            else:
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                # Overwrite: trash the file being replaced (recoverable). If trashing
+                # was requested but failed, skip rather than silently hard-overwriting.
+                if strategy == ConflictStrategy.OVERWRITE and resolved.exists():
+                    if use_trash and not send_to_trash(resolved):
+                        skipped += 1
+                        emit(FileSkipped(src=file, reason="trash-failed"))
+                        emit(Progress(done=index, total=total))
+                        continue
+                shutil.move(str(file), str(resolved))
+                planned.add(resolved)
+                manifest.append(MoveRecord.create(file, resolved, category, theme))
+        except OSError:
+            # A single unmovable file (permissions, vanished, cross-device) must not
+            # abort the whole run — already-moved files stay in the returned manifest.
             skipped += 1
-            emit(FileSkipped(src=file, reason="conflict"))
-            emit(Progress(done=index, total=total))
-            continue
-
-        emit(FilePlanned(
-            src=file, dest=resolved, category=category, theme=theme, dry_run=dry_run,
-        ))
-
-        if not dry_run:
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            # Overwrite: preserve the file being replaced by trashing it first
-            # (recoverable) rather than letting move() destroy it outright.
-            if strategy == ConflictStrategy.OVERWRITE and resolved.exists() and use_trash:
-                send_to_trash(resolved)
-            shutil.move(str(file), str(resolved))
-            manifest.append(MoveRecord.create(file, resolved, category, theme))
+            emit(FileSkipped(src=file, reason="error"))
 
         emit(Progress(done=index, total=total))
 

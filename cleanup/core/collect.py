@@ -90,7 +90,9 @@ def collect_files(
             if p.is_file():
                 if wanted(p):
                     files.append(p)
-            elif p.is_dir() and (include_managed or p.name not in managed):
+            elif p.is_dir() and not p.is_symlink() and (include_managed or p.name not in managed):
+                # Skip symlinked directories: following them risks infinite
+                # recursion on a symlink cycle.
                 if ignored(p):
                     continue
                 if is_project_folder(p):
