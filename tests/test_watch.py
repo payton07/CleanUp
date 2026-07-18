@@ -65,3 +65,21 @@ def test_multiple_files_batched(tmp_path: Path):
     assert len(manifest) == 2
     assert (tmp_path / "TEXTS" / "a.txt").exists()
     assert (tmp_path / "SCRIPTS" / "b.py").exists()
+
+
+def test_run_survives_tick_error(tmp_path: Path):
+    """A raising tick() must not kill the watch loop; on_error fires."""
+    w = Watcher(tmp_path, Ruleset(), poll_interval=0.01)
+    errors: list[Exception] = []
+    calls = {"n": 0}
+
+    def boom():
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            w.stop()
+        raise RuntimeError("boom")
+
+    w.tick = boom
+    w.on_error = errors.append
+    w.run()   # must return, not hang or propagate
+    assert len(errors) >= 1

@@ -42,6 +42,7 @@ class Watcher:
         poll_interval: float = 2.0,
         on_event: Callable[[Event], None] | None = None,
         on_sorted: Callable[[list[MoveRecord]], None] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
     ):
         self.directory = directory
         self.ruleset = ruleset
@@ -55,6 +56,7 @@ class Watcher:
         self.poll_interval = poll_interval
         self.on_event = on_event
         self.on_sorted = on_sorted
+        self.on_error = on_error
 
         self._sizes: dict[Path, int] = {}
         self._running = False
@@ -106,7 +108,11 @@ class Watcher:
         """Poll until :meth:`stop` is called (or KeyboardInterrupt)."""
         self._running = True
         while self._running:
-            self.tick()
+            try:
+                self.tick()
+            except Exception as exc:  # noqa: BLE001 - a bad tick must not kill the watcher
+                if self.on_error:
+                    self.on_error(exc)
             # Sleep in small slices so stop() is responsive.
             slept = 0.0
             while self._running and slept < self.poll_interval:

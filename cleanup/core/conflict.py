@@ -12,15 +12,28 @@ class ConflictStrategy(str, Enum):
     OVERWRITE = "overwrite"
 
 
-def resolve_conflict(dest: Path, strategy: ConflictStrategy) -> Path | None:
+def resolve_conflict(
+    dest: Path,
+    strategy: ConflictStrategy,
+    taken: set[Path] | None = None,
+) -> Path | None:
     """Return the path to write to, or ``None`` if the file should be skipped.
 
     - no collision: return ``dest`` unchanged
     - ``SKIP``:      return ``None``
     - ``OVERWRITE``: return ``dest``
     - ``RENAME``:    return ``dest`` with a numbered ``_N`` suffix that is free
+
+    ``taken`` lets a caller reserve paths that aren't on disk yet (e.g. dry-run
+    previews of earlier files in the same batch), so collisions are simulated
+    accurately.
     """
-    if not dest.exists():
+    taken = taken or set()
+
+    def occupied(p: Path) -> bool:
+        return p in taken or p.exists()
+
+    if not occupied(dest):
         return dest
     if strategy == ConflictStrategy.SKIP:
         return None
@@ -31,6 +44,6 @@ def resolve_conflict(dest: Path, strategy: ConflictStrategy) -> Path | None:
     counter = 1
     while True:
         candidate = dest.parent / f"{stem}_{counter}{suffix}"
-        if not candidate.exists():
+        if not occupied(candidate):
             return candidate
         counter += 1

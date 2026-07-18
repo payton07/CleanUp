@@ -76,6 +76,15 @@ cleanup-web            # opens http://127.0.0.1:8765 in your browser
 The GUI is a thin layer over the same `cleanup.core` engine the CLI uses.
 The **🤖 AI** toggle appears automatically when Ollama is running, with a model picker; AI-suggested categories are marked with an `AI` badge in the preview.
 
+### 🔒 Security
+
+The web GUI is a **single-user, local tool** — it binds to `127.0.0.1` only and has **no authentication**. Because its endpoints move and trash files, it validates requests to prevent a malicious web page from reaching it:
+
+- **Host allowlist** — requests whose `Host` isn't `localhost`/`127.0.0.1`/`::1` are rejected (defeats DNS-rebinding).
+- **WebSocket Origin check** — cross-origin connections to `/ws/sort` are refused (defeats CSRF on the CORS-exempt socket).
+
+> ⚠️ **Do not expose it beyond `127.0.0.1`.** Don't bind it to `0.0.0.0` or put it behind a public reverse proxy — there is no auth. If you ever need remote/multi-user access, add an authentication token (or an SSH tunnel) first.
+
 ## 🤖 Local AI setup (optional)
 
 There are two ways to run the default `--ai` (embedding) mode:
