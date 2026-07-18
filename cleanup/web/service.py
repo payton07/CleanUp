@@ -28,6 +28,7 @@ from ..core.events import Event, FilePlanned, FileSkipped, Progress, ScanStarted
 from ..core.history import HistoryStore
 from ..core.organize import Scheme, make_organizer
 from ..core.runlog import log_run
+from ..core.stats import compute_stats
 
 
 @dataclass
@@ -279,6 +280,24 @@ def dedupe_apply(directory: Path, action: str, no_trash: bool) -> dict:
     if result.trashed:
         log_run(directory, f"dedupe trash (web): {result.trashed} file(s)")
     return {"moved": len(result.moved), "trashed": result.trashed, "failed": len(result.failed)}
+
+
+# ─── STATS ──────────────────────────────────────────────────────────────────
+
+def stats(directory: Path) -> dict:
+    ruleset, _ = load_ruleset(directory)
+    s = compute_stats(directory, ruleset)
+    return {
+        "total_files": s.total_files,
+        "total_size": s.total_size,
+        "duplicate_groups": s.duplicate_groups,
+        "reclaimable": s.reclaimable,
+        "categories": [
+            {"category": c.category, "count": c.count, "size": c.size} for c in s.categories
+        ],
+        "largest": [{"name": name, "size": size} for name, size in s.largest],
+        "by_month": s.by_month,
+    }
 
 
 # ─── AI STATUS ──────────────────────────────────────────────────────────────
