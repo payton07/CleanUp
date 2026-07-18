@@ -42,6 +42,7 @@ from ..core.history import HistoryStore
 from ..core.manifest import MoveRecord
 from ..core.organize import Scheme
 from ..core.runlog import log_run
+from ..core.schedule import CADENCES, install as install_schedule, uninstall as uninstall_schedule
 from ..core.watch import Watcher
 
 CUSTOM_THEME = Theme({
@@ -165,6 +166,12 @@ examples:
                         help="Roll back the last sort (multi-level)")
     parser.add_argument("--redo", action="store_true",
                         help="Re-apply the last undone sort")
+    parser.add_argument("--install-schedule", action="store_true",
+                        help="Install a periodic sort (launchd on macOS, cron on Linux)")
+    parser.add_argument("--uninstall-schedule", action="store_true",
+                        help="Remove the scheduled sort for this directory")
+    parser.add_argument("--every", choices=list(CADENCES), default="daily",
+                        help="Frequency for --install-schedule (default: daily)")
     return parser
 
 
@@ -367,6 +374,45 @@ def _maybe_adaptive(args, classifier, embedder):
     return AdaptiveClassifier(emb, classifier, store)
 
 
+def _scheduled_sort_flags(args: argparse.Namespace) -> list[str]:
+    """Reconstruct the sort-affecting flags to bake into a scheduled command."""
+    extra: list[str] = []
+    if args.smart:       extra.append("--smart")
+    if args.recursive:   extra.append("--recursive")
+    if args.clean_empty: extra.append("--clean-empty")
+    if args.no_trash:    extra.append("--no-trash")
+    if args.by != Scheme.TYPE.value:
+        extra += ["--by", args.by]
+    if args.conflict != ConflictStrategy.RENAME.value:
+        extra += ["--conflict", args.conflict]
+    if args.extensions:
+        extra += ["--extensions", *args.extensions]
+    if args.ai:          extra.append("--ai")
+    if args.ai_creative: extra.append("--ai-creative")
+    if args.ai_adaptive: extra.append("--ai-adaptive")
+    if args.ai_backend != "auto":
+        extra += ["--ai-backend", args.ai_backend]
+    return extra
+
+
+def _run_schedule(args: argparse.Namespace, directory: Path) -> None:
+    if args.uninstall_schedule:
+        if uninstall_schedule(directory):
+            console.print(f"  [success]✔ Scheduled sort removed[/success] for [cyan]{directory}[/cyan]")
+        else:
+            console.print(f"  [warning]⚠ No scheduled sort found for {directory}[/warning]")
+        return
+
+    result = install_schedule(directory, _scheduled_sort_flags(args), args.every)
+    console.print(f"  [success]✔ Scheduled[/success] a [bold]{args.every}[/bold] sort of "
+                 f"[cyan]{directory}[/cyan]")
+    console.print(f"  [dim]• {result.kind}: {result.path}[/dim]")
+    if result.kind == "launchd" and not result.activated:
+        console.print(f"  [warning]⚠ plist written but activation failed — load it with: "
+                     f"launchctl load -w {result.path}[/warning]")
+    console.print(f"  [dim]Remove it later with: cleanup {directory} --uninstall-schedule[/dim]")
+
+
 def _run_teach(args: argparse.Namespace, directory: Path) -> None:
     file_arg, category = args.ai_teach
     target = Path(file_arg)
@@ -564,7 +610,9 @@ def main(argv: list[str] | None = None) -> None:
         border_style="blue",
     ))
 
-    if args.ai_teach:
+    if args.install_schedule or args.uninstall_schedule:
+        _run_schedule(args, directory)
+    elif args.ai_teach:
         _run_teach(args, directory)
     elif args.undo:
         _run_undo(directory)
