@@ -30,6 +30,7 @@ from rich.theme import Theme
 
 from ..ai.backends import resolve_embedder
 from ..ai.classify import AiInteraction, CreativeClassifier, EmbeddingClassifier
+from ..ai.images import ImageClassifier, ImageEmbedder, ImageInteraction
 from ..ai.ollama import OllamaClient
 from ..core import detect
 from ..core.collect import collect_files
@@ -149,6 +150,8 @@ examples:
                         help="Learn from your corrections: reuse a remembered category for similar files")
     parser.add_argument("--ai-teach", nargs=2, metavar=("FILE", "CATEGORY"),
                         help="Teach the adaptive AI that FILE belongs in CATEGORY, then exit")
+    parser.add_argument("--ai-images", action="store_true",
+                        help="Sub-sort images by content (screenshots/photos/memes/…) via local CLIP")
     parser.add_argument("--ai-backend", choices=["auto", "local", "ollama"], default="auto",
                         help="Embedding backend for --ai: local (in-process, no server), "
                              "ollama, or auto (default: prefer local)")
@@ -219,6 +222,8 @@ def _run_sort(args: argparse.Namespace, directory: Path) -> None:
     interaction = RichInteraction() if args.interactive else None
     if args.ai or args.ai_creative:
         interaction = _build_ai_interaction(args, ruleset, interaction)
+    if args.ai_images:
+        interaction = _build_image_interaction(interaction)
     console.print()
 
     with Progress(
@@ -286,6 +291,8 @@ def _run_watch(args: argparse.Namespace, directory: Path) -> None:
     interaction = None
     if args.ai or args.ai_creative:
         interaction = _build_ai_interaction(args, ruleset, None)
+    if args.ai_images:
+        interaction = _build_image_interaction(interaction)
 
     opts = []
     if args.recursive: opts.append("recursive")
@@ -348,6 +355,16 @@ def _run_watch(args: argparse.Namespace, directory: Path) -> None:
 
     console.print(f"\n  [bold success]✨ Watch stopped[/bold success] "
                  f"— {counters['total']} file(s) sorted this session.")
+
+
+def _build_image_interaction(base):
+    """Wrap ``base`` with CLIP image sub-sorting, or fall back if unavailable."""
+    if not ImageEmbedder.available():
+        console.print("  [warning]• 🖼️ --ai-images needs fastembed: "
+                     "`pip install cleanup-cli[image]` — continuing without it[/warning]")
+        return base
+    console.print("  [cyan]• 🖼️ image sub-sorting on (CLIP)[/cyan]")
+    return ImageInteraction(ImageClassifier(ImageEmbedder()), wrap=base or None)
 
 
 def _maybe_adaptive(args, classifier, embedder):
