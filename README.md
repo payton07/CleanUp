@@ -227,19 +227,25 @@ python Clean_up.py ~/Downloads
 
 ## 📦 Standalone binary (no Python needed)
 
-Prebuilt binaries for macOS and Linux are attached to each [GitHub Release](../../releases)
+Prebuilt binaries for **macOS (arm64), Linux (x64), and Windows (x64)** are attached to each [GitHub Release](../../releases)
 (built by CI from a version tag). Download, make it executable, run it:
 
 ```bash
+# macOS / Linux
 chmod +x cleanup-macos-arm64
 ./cleanup-macos-arm64 ~/Downloads --smart
 ```
 
-Build one yourself:
+```powershell
+# Windows (PowerShell)
+.\cleanup-windows-x64.exe C:\Users\me\Downloads --smart
+```
+
+Build one yourself (produces `dist/cleanup`, or `dist/cleanup.exe` on Windows):
 
 ```bash
 pip install -e . pyinstaller
-bash scripts/build_binary.sh          # → dist/cleanup (~15 MB)
+bash scripts/build_binary.sh          # ~15 MB
 ```
 
 The binary bundles the **core CLI** (sort, dedupe, undo/redo, watch, layout
