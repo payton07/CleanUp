@@ -104,6 +104,15 @@ def api_scan(body: ScanBody) -> JSONResponse:
     return JSONResponse(service.scan(directory, body.to_options()))
 
 
+@app.get("/api/stats")
+def api_stats(path: str) -> JSONResponse:
+    try:
+        directory = service.resolve_dir(path)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse(service.stats(directory))
+
+
 @app.get("/api/history")
 def api_history(path: str) -> JSONResponse:
     try:
