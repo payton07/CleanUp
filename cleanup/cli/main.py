@@ -145,6 +145,10 @@ examples:
                              "needs an embedding model like nomic-embed-text)")
     parser.add_argument("--ai-creative", action="store_true",
                         help="Use a generative LLM that can invent new categories (vs. embeddings)")
+    parser.add_argument("--ai-adaptive", action="store_true",
+                        help="Learn from your corrections: reuse a remembered category for similar files")
+    parser.add_argument("--ai-teach", nargs=2, metavar=("FILE", "CATEGORY"),
+                        help="Teach the adaptive AI that FILE belongs in CATEGORY, then exit")
     parser.add_argument("--ai-backend", choices=["auto", "local", "ollama"], default="auto",
                         help="Embedding backend for --ai: local (in-process, no server), "
                              "ollama, or auto (default: prefer local)")
@@ -346,6 +350,51 @@ def _run_watch(args: argparse.Namespace, directory: Path) -> None:
                  f"— {counters['total']} file(s) sorted this session.")
 
 
+def _maybe_adaptive(args, classifier, embedder):
+    """Wrap ``classifier`` with adaptive memory when ``--ai-adaptive`` is set."""
+    if not args.ai_adaptive:
+        return classifier
+    emb = embedder
+    if emb is None:
+        emb, _, _ = resolve_embedder("auto")
+    if emb is None:
+        console.print("  [warning]• 🧠 adaptive needs an embedding backend — using base AI[/warning]")
+        return classifier
+    from ..ai.adaptive import AdaptiveClassifier
+    from ..ai.memory import DecisionStore
+    store = DecisionStore()
+    console.print(f"  [cyan]• 🧠 adaptive on ({len(store)} learned decision(s))[/cyan]")
+    return AdaptiveClassifier(emb, classifier, store)
+
+
+def _run_teach(args: argparse.Namespace, directory: Path) -> None:
+    file_arg, category = args.ai_teach
+    target = Path(file_arg)
+    if not target.is_absolute():
+        target = directory / file_arg
+    if not target.is_file():
+        console.print(f"[error]❌ '{target}' is not a file.[/error]")
+        sys.exit(1)
+
+    embedder, _threshold, label = resolve_embedder(args.ai_backend, ollama_model=args.ai_model)
+    if embedder is None:
+        console.print(f"[error]❌ {label}[/error]")
+        sys.exit(1)
+
+    from ..ai.adaptive import AdaptiveClassifier
+    from ..ai.memory import DecisionStore
+    store = DecisionStore()
+    adaptive = AdaptiveClassifier(embedder, EmbeddingClassifier(embedder), store)
+    category = category.strip().upper()
+    if adaptive.record(target, category):
+        console.print(f"  [success]✔ Learned:[/success] [cyan]{target.name}[/cyan] "
+                     f"[bold]→[/bold] [category]{category}[/category] "
+                     f"[dim]({len(store)} decision(s) remembered)[/dim]")
+    else:
+        console.print("[error]❌ Could not embed the file (no backend?).[/error]")
+        sys.exit(1)
+
+
 def _build_ai_interaction(args, ruleset, base):
     """Wrap ``base`` with an AI classifier, or fall back if unavailable.
 
@@ -361,6 +410,7 @@ def _build_ai_interaction(args, ruleset, base):
             return base
         classifier = CreativeClassifier(client, list(ruleset.mime_categories.keys()))
         console.print(f"  [cyan]• 🤖 AI creative mode (LLM: {client.model})[/cyan]")
+        classifier = _maybe_adaptive(args, classifier, None)
         return AiInteraction(classifier, wrap=base or None)
 
     # Default --ai: embedding similarity via the resolved backend.
@@ -370,6 +420,7 @@ def _build_ai_interaction(args, ruleset, base):
         return base
     classifier = EmbeddingClassifier(embedder, threshold=threshold)
     console.print(f"  [cyan]• 🤖 AI zero-shot embeddings — {label}[/cyan]")
+    classifier = _maybe_adaptive(args, classifier, embedder)
     return AiInteraction(classifier, wrap=base or None)
 
 
@@ -513,7 +564,9 @@ def main(argv: list[str] | None = None) -> None:
         border_style="blue",
     ))
 
-    if args.undo:
+    if args.ai_teach:
+        _run_teach(args, directory)
+    elif args.undo:
         _run_undo(directory)
     elif args.redo:
         _run_redo(directory)

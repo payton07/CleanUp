@@ -85,3 +85,23 @@ def test_dedupe_endpoint(tmp_path: Path):
     r = client.post("/api/dedupe", json={"path": str(tmp_path), "recursive": False}).json()
     assert len(r["groups"]) == 1
     assert r["groups"][0]["paths"][0].endswith("a.txt")
+
+
+def test_ai_correct_endpoint(tmp_path: Path, monkeypatch):
+    # Isolate the decision store from the real ~/.config/cleanup.
+    monkeypatch.setenv("CLEANUP_HOME", str(tmp_path / "home"))
+    d = tmp_path / "docs"; d.mkdir()
+    (d / "note.txt").write_text("weekly meeting notes and action items")
+
+    r = client.post("/api/ai/correct",
+                    json={"path": str(d), "src": "note.txt", "category": "MEETINGS"}).json()
+    assert "ok" in r
+    if r["ok"]:                       # an embedding backend is available (local dev)
+        assert r["learned"] >= 1
+    else:                             # no backend (e.g. CI) → graceful
+        assert "reason" in r
+
+
+def test_ai_correct_invalid_dir():
+    r = client.post("/api/ai/correct", json={"path": "/no/such/dir", "src": "x", "category": "Y"})
+    assert r.status_code == 400

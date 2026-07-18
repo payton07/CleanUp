@@ -124,6 +124,12 @@
   .row .dest .dest-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ai-tag { flex: none; font-size: 10.5px; font-weight: 700; color: var(--accent); background: var(--accent-soft);
             border-radius: 5px; padding: 1px 5px; }
+  .cat-edit { flex: none; width: 104px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border);
+              background: var(--surface); color: var(--accent); font-family: ui-monospace, monospace;
+              font-size: 12.5px; font-weight: 600; }
+  .cat-edit:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .learned-tag { flex: none; font-size: 10.5px; font-weight: 700; color: var(--green); background: var(--green-soft);
+                 border-radius: 5px; padding: 1px 5px; }
   .list-scroll { max-height: 340px; overflow-y: auto; margin-top: 6px; }
 
   /* Progress */
@@ -378,14 +384,32 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
 });
 
 // ── Preview ──
+let lastScanCtx = { path: "", aiUsed: false };
+
 $("#preview").onclick = async () => {
   if (needPath()) return;
   $("#org-status").innerHTML = '<span class="spin"></span> scanning…';
   $("#log").style.display = "none"; $("#progbar").style.display = "none";
   const res = await post("/api/scan", opts());
   if (res.error) { $("#org-status").textContent = "⚠ " + res.error; $("#apply").disabled = true; return; }
+  lastScanCtx = { path: opts().path, aiUsed: !!res.ai_used };
   renderPlan(res);
 };
+
+async function onCorrect(it, category, row, input) {
+  if (!category || category === (it.category || "").toUpperCase()) return;
+  input.disabled = true;
+  const res = await post("/api/ai/correct", { path: lastScanCtx.path, src: it.src, category });
+  input.disabled = false;
+  if (res.ok) {
+    it.category = category;
+    const dest = row.querySelector(".dest");
+    if (!dest.querySelector(".learned-tag")) dest.appendChild(el("span", "learned-tag", "learned ✓"));
+    $("#org-status").innerHTML = `<span class="banner ok">🧠 Learned (${res.learned} decision(s)) — re-preview to apply to similar files</span>`;
+  } else {
+    $("#org-status").textContent = "⚠ " + (res.reason || res.error || "could not record correction");
+  }
+}
 
 function renderPlan(res) {
   $("#cd-badge").innerHTML = res.content_detection ? "" : '<span class="badge-off">· content detection off</span>';
@@ -401,7 +425,18 @@ function renderPlan(res) {
     r.appendChild(el("div","src", it.src));
     r.appendChild(el("div","arrow", "→"));
     const dest = el("div","dest");
-    dest.appendChild(el("span","dest-text", it.dest));
+    const editable = res.ai_used && (it.ai || it.category === "TEXTS" || it.category === "OTHERS");
+    if (editable) {
+      const input = document.createElement("input");
+      input.className = "cat-edit"; input.value = it.category; input.spellcheck = false;
+      input.title = "Edit to teach the AI where this kind of file belongs";
+      const remainder = it.dest.startsWith(it.category) ? it.dest.slice(it.category.length) : "/" + it.name;
+      input.onchange = () => onCorrect(it, input.value.trim().toUpperCase(), r, input);
+      dest.appendChild(input);
+      dest.appendChild(el("span","dest-text", remainder));
+    } else {
+      dest.appendChild(el("span","dest-text", it.dest));
+    }
     if (it.ai) dest.appendChild(el("span","ai-tag","AI"));
     r.appendChild(dest);
     scroll.appendChild(r);
