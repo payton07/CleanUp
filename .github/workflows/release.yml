@@ -16,9 +16,18 @@ jobs:
         include:
           - os: ubuntu-latest
             asset: cleanup-linux-x64
+            bin: cleanup
           - os: macos-latest
             asset: cleanup-macos-arm64
+            bin: cleanup
+          - os: windows-latest
+            asset: cleanup-windows-x64.exe
+            bin: cleanup.exe
     runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash   # use bash on all OSes (Git Bash on Windows) for uniform steps
 
     steps:
       - uses: actions/checkout@v4
@@ -37,10 +46,10 @@ jobs:
         run: bash scripts/build_binary.sh
 
       - name: Smoke test
-        run: ./dist/cleanup --help
+        run: ./dist/${{ matrix.bin }} --help
 
       - name: Name the artifact
-        run: mv dist/cleanup "dist/${{ matrix.asset }}"
+        run: mv "dist/${{ matrix.bin }}" "dist/${{ matrix.asset }}"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
