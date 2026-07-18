@@ -27,6 +27,7 @@ from .events import (
 )
 from .manifest import MoveRecord
 from .organize import Organizer, Scheme, make_organizer
+from .rules import match_rule
 from .trash import send_to_trash
 
 
@@ -96,7 +97,9 @@ def sort_files(
     emit(ScanStarted(total=total))
 
     for index, file in enumerate(files, start=1):
-        category = detect_category(file, ruleset)
+        # A user rule, if it matches, is authoritative (skips detection + AI).
+        rule_category = match_rule(file, ruleset.rules)
+        category = rule_category if rule_category is not None else detect_category(file, ruleset)
         theme = detect_theme(file, ruleset) if smart else None
 
         # Theme confirmation (cached per theme).
@@ -106,8 +109,8 @@ def sort_files(
             if not theme_decisions[theme]:
                 theme = None
 
-        # Unknown handling.
-        if category == OTHERS:
+        # Unknown handling (rules never yield OTHERS unless explicitly set).
+        if rule_category is None and category == OTHERS:
             decision = interaction.handle_unknown(file)
             if decision.action == "skip":
                 skipped += 1
@@ -118,8 +121,10 @@ def sort_files(
                 category = decision.category
                 dynamic_managed.add(category)
 
-        # Optional refinement (AI tagging of ambiguous categories).
-        category = interaction.refine_category(file, category)
+        # Optional AI refinement of ambiguous categories — skipped when a rule
+        # already decided the category.
+        if rule_category is None:
+            category = interaction.refine_category(file, category)
         dynamic_managed.add(category)
 
         dest_dir = directory / organizer(file, category, theme)

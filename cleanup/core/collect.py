@@ -7,6 +7,7 @@ from typing import Callable
 
 from .config import CONFIG_FILE, Ruleset
 from .history import HISTORY_FILE
+from .ignore import IGNORE_FILE, is_ignored, load_ignore_patterns
 from .manifest import MANIFEST_FILE
 from .runlog import LOG_FILE
 
@@ -16,7 +17,7 @@ _PROJECT_INDICATORS = {
 }
 
 # Files the tool owns and must never move.
-_RESERVED_NAMES = {MANIFEST_FILE, CONFIG_FILE, HISTORY_FILE, LOG_FILE}
+_RESERVED_NAMES = {MANIFEST_FILE, CONFIG_FILE, HISTORY_FILE, LOG_FILE, IGNORE_FILE}
 
 
 def is_project_folder(path: Path) -> bool:
@@ -50,9 +51,19 @@ def collect_files(
     if it returns False (default) the folder is left untouched.
     """
     managed = ruleset.managed_dirs
+    ignore_patterns = load_ignore_patterns(directory)
+
+    def _rel(p: Path) -> str:
+        try:
+            return str(p.relative_to(directory))
+        except ValueError:
+            return p.name
+
+    def ignored(p: Path) -> bool:
+        return bool(ignore_patterns) and is_ignored(_rel(p), p.name, ignore_patterns)
 
     def wanted(p: Path) -> bool:
-        if p.name in _RESERVED_NAMES:
+        if p.name in _RESERVED_NAMES or ignored(p):
             return False
         if filter_exts is None:
             return True
@@ -80,6 +91,8 @@ def collect_files(
                 if wanted(p):
                     files.append(p)
             elif p.is_dir() and (include_managed or p.name not in managed):
+                if ignored(p):
+                    continue
                 if is_project_folder(p):
                     if should_enter_project and should_enter_project(p):
                         scan(p)

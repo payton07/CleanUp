@@ -34,7 +34,8 @@ from ..ai.ollama import OllamaClient
 from ..core import detect
 from ..core.collect import collect_files
 from ..core.conflict import ConflictStrategy
-from ..core.config import load_ruleset
+from ..core.config import load_ruleset, profile_path
+from .completion import completion_script
 from ..core.dedupe import apply_dedupe, find_duplicates
 from ..core.engine import Interaction, UnknownDecision, sort_files
 from ..core.events import FilePlanned, FileSkipped, Progress as ProgressEvent, ScanStarted
@@ -120,7 +121,12 @@ examples:
   cleanup ~/Downloads --redo
         """,
     )
-    parser.add_argument("directory", type=Path, help="Directory to sort")
+    parser.add_argument("directory", type=Path, nargs="?", default=None,
+                        help="Directory to sort")
+    parser.add_argument("--profile", metavar="NAME",
+                        help="Load a named profile (~/.config/cleanup/profiles/NAME.json)")
+    parser.add_argument("--print-completion", choices=["bash", "zsh"], metavar="SHELL",
+                        help="Print a shell completion script (bash|zsh) and exit")
     parser.add_argument("--extensions", "-e", nargs="+", metavar="EXT",
                         help="Only sort these extensions (e.g. py js png)")
     parser.add_argument("--recursive", "-r", action="store_true",
@@ -190,7 +196,7 @@ def _print_summary(manifest: list[MoveRecord]) -> None:
 
 
 def _run_sort(args: argparse.Namespace, directory: Path) -> None:
-    ruleset, message = load_ruleset(directory)
+    ruleset, message = load_ruleset(directory, _resolve_profile(args))
     if message:
         style = "success" if message.startswith("Config") else "warning"
         console.print(f"  [{style}]{message}[/{style}]")
@@ -280,7 +286,7 @@ def _ask_enter_project(folder: Path) -> bool:
 
 
 def _run_watch(args: argparse.Namespace, directory: Path) -> None:
-    ruleset, message = load_ruleset(directory)
+    ruleset, message = load_ruleset(directory, _resolve_profile(args))
     if message:
         style = "success" if message.startswith("Config") else "warning"
         console.print(f"  [{style}]{message}[/{style}]")
@@ -603,10 +609,29 @@ def _safe_relpath(path: Path, base: Path) -> str:
         return str(path)
 
 
-def main(argv: list[str] | None = None) -> None:
-    args = build_parser().parse_args(argv)
-    directory = args.directory.resolve()
+def _resolve_profile(args) -> Path | None:
+    """Return the profile config path, warning if a named profile is missing."""
+    if not args.profile:
+        return None
+    path = profile_path(args.profile)
+    if not path.exists():
+        console.print(f"  [warning]⚠ profile '{args.profile}' not found at {path}[/warning]")
+        return None
+    return path
 
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.print_completion:
+        print(completion_script(args.print_completion, parser), end="")
+        return
+
+    if args.directory is None:
+        parser.error("the following arguments are required: directory")
+
+    directory = args.directory.resolve()
     if not directory.is_dir():
         console.print(f"[error]❌ ERROR: '{directory}' is not a valid directory.[/error]")
         sys.exit(1)
