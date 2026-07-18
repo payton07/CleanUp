@@ -181,6 +181,29 @@ cleanup ~/Downloads --smart
 python Clean_up.py ~/Downloads
 ```
 
+## 📦 Standalone binary (no Python needed)
+
+Prebuilt binaries for macOS and Linux are attached to each [GitHub Release](../../releases)
+(built by CI from a version tag). Download, make it executable, run it:
+
+```bash
+chmod +x cleanup-macos-arm64
+./cleanup-macos-arm64 ~/Downloads --smart
+```
+
+Build one yourself:
+
+```bash
+pip install -e . pyinstaller
+bash scripts/build_binary.sh          # → dist/cleanup (~15 MB)
+```
+
+The binary bundles the **core CLI** (sort, dedupe, undo/redo, watch, layout
+schemes). To keep it small and portable it excludes the heavy optional stacks —
+AI (`fastembed`/onnxruntime), the web GUI, and `libmagic` — so it uses
+extension-based detection and those features are disabled. Use the pip install
+for AI or the web GUI.
+
 ## 🧪 Development
 
 ```bash
