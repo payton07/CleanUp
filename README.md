@@ -14,6 +14,7 @@
     -   Fully offline, no API key; if no backend is available the feature simply switches off.
 -   **📊 Insights**: `--stats` (CLI) or the **Insights** tab (web) summarizes a folder — totals, a per-category size breakdown, the largest files, duplicate-reclaimable space, and a by-month histogram.
 -   **👀 Watch Mode**: `--watch` keeps a folder tidy continuously — new files are sorted as they arrive, once they finish downloading (size-stability debounce). Every move is undoable and logged; stops cleanly on Ctrl+C or `kill`.
+-   **⏱️ Scheduling**: `--install-schedule --every daily` sets up a recurring sort (launchd on macOS, cron on Linux); `--uninstall-schedule` removes it. Complements watch mode with time-based runs.
 -   **🗂️ Layout Schemes**: Organize by `type` (default), by `date` (`IMAGES/2026/07/`), or by `size` bucket — `--by date|size`.
 -   **♊ Duplicate Finder**: Detects identical files by **content hash** (BLAKE2, with a size pre-filter), reports reclaimable space, and can move or trash extra copies — `--dedupe report|move|trash`.
 -   **🤝 Interactive Mode**: An "Assistant" mode that asks for your confirmation for themes, unrecognized files, and project folder protection.
@@ -38,6 +39,10 @@ python Clean_up.py . --smart --recursive --dry-run
 
 # Watch a folder and sort new files as they arrive (Ctrl+C to stop)
 python Clean_up.py ~/Downloads --watch
+
+# Schedule a daily sort (launchd/cron); remove it later
+cleanup ~/Downloads --smart --install-schedule --every daily
+cleanup ~/Downloads --uninstall-schedule
 
 # Full interactive intelligent sort
 python Clean_up.py . --smart --recursive --interactive
@@ -139,6 +144,7 @@ CLEANUP_AI_THRESHOLD=0.60 cleanup ~/Downloads --ai
 -   `--stats`: Show a summary of the directory (categories, sizes, largest files, duplicates, by month).
 -   `--watch`, `-w`: Watch the directory and sort new files continuously (Ctrl+C to stop).
 -   `--interval SEC`: Polling interval for `--watch` (default: 2.0s).
+-   `--install-schedule` / `--uninstall-schedule` with `--every hourly|daily|weekly`: Set up or remove a recurring sort (launchd on macOS, cron on Linux).
 -   `--recursive`, `-r`: Scan subdirectories (includes project detection).
 -   `--dry-run`, `-n`: Preview mode (no files are moved).
 -   `--clean-empty`: Remove empty subdirectories after sorting.
@@ -267,6 +273,7 @@ cleanup/
 │   ├── dedupe.py     # content-hash duplicate detection
 │   ├── engine.py     # orchestrator, emits progress events
 │   ├── watch.py      # polling watch mode (sort new files continuously)
+│   ├── schedule.py   # periodic scheduling (launchd / cron)
 │   ├── stats.py      # directory insights (categories, sizes, duplicates, months)
 │   ├── events.py     # event dataclasses
 │   ├── history.py    # multi-level undo/redo sessions
