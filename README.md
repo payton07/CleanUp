@@ -22,6 +22,7 @@
     -   **Run log**: every operation is appended to `.cleanup.log`.
     -   **Project Detection**: Automatically identifies folders like `.git` or `venv` to prevent breaking your projects.
 -   **🎨 Modern Interface**: A beautiful terminal UI powered by `rich`, featuring progress bars, stylized panels, and a final summary dashboard.
+-   **📋 Rules, Ignore & Profiles**: Force a category by name/size/date with `RULES`; exclude paths with a `.cleanupignore`; save reusable rule sets as profiles (`--profile downloads`). Plus shell completion (`--print-completion bash|zsh`).
 -   **⚙️ External Configuration**: Fully customizable via a `cleanup_config.json` file.
 
 ## 🚀 Usage
@@ -140,6 +141,8 @@ CLEANUP_AI_THRESHOLD=0.60 cleanup ~/Downloads --ai
 -   `--undo`, `-u`: Roll back the last operation (repeatable — multi-level).
 -   `--redo`: Re-apply the last undone operation.
 -   `--no-trash`: Hard-delete on overwrite/dedupe instead of using the OS trash.
+-   `--profile NAME`: Load a named profile (`~/.config/cleanup/profiles/NAME.json`).
+-   `--print-completion bash|zsh`: Print a shell completion script and exit.
 -   `--extensions`, `-e`: Filter sorting to specific extensions (e.g., `py js`).
 -   `--conflict`, `-c`: Strategy for duplicate names: `rename` (default), `skip`, `overwrite`.
 
@@ -158,8 +161,39 @@ Create a `cleanup_config.json` in your target folder to customize rules:
   },
   "EXT_FALLBACK": {
     "CONFIGS": ["yaml", "yml", "sql"]
-  }
+  },
+  "RULES": [
+    {"name": "*.facture.pdf", "category": "INVOICES"},
+    {"ext": "psd", "category": "DESIGN"},
+    {"min_size": "1GB", "category": "BIG"},
+    {"older_than": "365d", "category": "ARCHIVE"}
+  ]
 }
+```
+
+**Rules** (`RULES`) force a category by name/extension/size/age and are applied
+*before* content detection and AI — the first matching rule wins.
+
+### `.cleanupignore`
+
+Drop a `.cleanupignore` in a folder to exclude paths (gitignore-style globs):
+
+```
+*.tmp
+node_modules/
+secret*
+```
+
+### Profiles
+
+Save a named config at `~/.config/cleanup/profiles/<name>.json` (same shape) and
+apply it anywhere with `--profile <name>` (the folder's own `cleanup_config.json`
+still overrides it).
+
+### Shell completion
+
+```bash
+cleanup --print-completion bash >> ~/.bashrc      # or: zsh
 ```
 
 ## 📦 Requirements & Install
@@ -200,6 +234,8 @@ cleanup/
 │   ├── config.py     # schema-validated rules (pydantic)
 │   ├── collect.py    # file discovery + project protection
 │   ├── conflict.py   # duplicate-name strategies
+│   ├── rules.py      # user rules (name/size/date → category)
+│   ├── ignore.py     # .cleanupignore exclusions
 │   ├── organize.py   # layout schemes: type / date / size
 │   ├── dedupe.py     # content-hash duplicate detection
 │   ├── engine.py     # orchestrator, emits progress events
