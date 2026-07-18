@@ -30,11 +30,13 @@ from rich.theme import Theme
 
 from ..ai.backends import resolve_embedder
 from ..ai.classify import AiInteraction, CreativeClassifier, EmbeddingClassifier
+from ..ai.images import ImageClassifier, ImageEmbedder, ImageInteraction
 from ..ai.ollama import OllamaClient
 from ..core import detect
 from ..core.collect import collect_files
 from ..core.conflict import ConflictStrategy
-from ..core.config import load_ruleset
+from ..core.config import load_ruleset, profile_path
+from .completion import completion_script
 from ..core.dedupe import apply_dedupe, find_duplicates
 from ..core.engine import Interaction, UnknownDecision, sort_files
 from ..core.events import FilePlanned, FileSkipped, Progress as ProgressEvent, ScanStarted
@@ -43,6 +45,7 @@ from ..core.manifest import MoveRecord
 from ..core.organize import Scheme
 from ..core.runlog import log_run
 from ..core.schedule import CADENCES, install as install_schedule, uninstall as uninstall_schedule
+from ..core.stats import compute_stats
 from ..core.watch import Watcher
 
 CUSTOM_THEME = Theme({
@@ -120,7 +123,12 @@ examples:
   cleanup ~/Downloads --redo
         """,
     )
-    parser.add_argument("directory", type=Path, help="Directory to sort")
+    parser.add_argument("directory", type=Path, nargs="?", default=None,
+                        help="Directory to sort")
+    parser.add_argument("--profile", metavar="NAME",
+                        help="Load a named profile (~/.config/cleanup/profiles/NAME.json)")
+    parser.add_argument("--print-completion", choices=["bash", "zsh"], metavar="SHELL",
+                        help="Print a shell completion script (bash|zsh) and exit")
     parser.add_argument("--extensions", "-e", nargs="+", metavar="EXT",
                         help="Only sort these extensions (e.g. py js png)")
     parser.add_argument("--recursive", "-r", action="store_true",
@@ -150,6 +158,8 @@ examples:
                         help="Learn from your corrections: reuse a remembered category for similar files")
     parser.add_argument("--ai-teach", nargs=2, metavar=("FILE", "CATEGORY"),
                         help="Teach the adaptive AI that FILE belongs in CATEGORY, then exit")
+    parser.add_argument("--ai-images", action="store_true",
+                        help="Sub-sort images by content (screenshots/photos/memes/…) via local CLIP")
     parser.add_argument("--ai-backend", choices=["auto", "local", "ollama"], default="auto",
                         help="Embedding backend for --ai: local (in-process, no server), "
                              "ollama, or auto (default: prefer local)")
@@ -162,6 +172,8 @@ examples:
     parser.add_argument("--dedupe", nargs="?", const="report",
                         choices=["report", "move", "trash"], metavar="ACTION",
                         help="Find duplicate files by content; ACTION: report (default), move, trash")
+    parser.add_argument("--stats", action="store_true",
+                        help="Show a summary of the directory (categories, sizes, duplicates)")
     parser.add_argument("--undo", "-u", action="store_true",
                         help="Roll back the last sort (multi-level)")
     parser.add_argument("--redo", action="store_true",
@@ -194,7 +206,7 @@ def _print_summary(manifest: list[MoveRecord]) -> None:
 
 
 def _run_sort(args: argparse.Namespace, directory: Path) -> None:
-    ruleset, message = load_ruleset(directory)
+    ruleset, message = load_ruleset(directory, _resolve_profile(args))
     if message:
         style = "success" if message.startswith("Config") else "warning"
         console.print(f"  [{style}]{message}[/{style}]")
@@ -226,6 +238,8 @@ def _run_sort(args: argparse.Namespace, directory: Path) -> None:
     interaction = RichInteraction() if args.interactive else None
     if args.ai or args.ai_creative:
         interaction = _build_ai_interaction(args, ruleset, interaction)
+    if args.ai_images:
+        interaction = _build_image_interaction(interaction)
     console.print()
 
     with Progress(
@@ -284,7 +298,7 @@ def _ask_enter_project(folder: Path) -> bool:
 
 
 def _run_watch(args: argparse.Namespace, directory: Path) -> None:
-    ruleset, message = load_ruleset(directory)
+    ruleset, message = load_ruleset(directory, _resolve_profile(args))
     if message:
         style = "success" if message.startswith("Config") else "warning"
         console.print(f"  [{style}]{message}[/{style}]")
@@ -293,6 +307,8 @@ def _run_watch(args: argparse.Namespace, directory: Path) -> None:
     interaction = None
     if args.ai or args.ai_creative:
         interaction = _build_ai_interaction(args, ruleset, None)
+    if args.ai_images:
+        interaction = _build_image_interaction(interaction)
 
     opts = []
     if args.recursive: opts.append("recursive")
@@ -355,6 +371,16 @@ def _run_watch(args: argparse.Namespace, directory: Path) -> None:
 
     console.print(f"\n  [bold success]✨ Watch stopped[/bold success] "
                  f"— {counters['total']} file(s) sorted this session.")
+
+
+def _build_image_interaction(base):
+    """Wrap ``base`` with CLIP image sub-sorting, or fall back if unavailable."""
+    if not ImageEmbedder.available():
+        console.print("  [warning]• 🖼️ --ai-images needs fastembed: "
+                     "`pip install cleanup-cli[image]` — continuing without it[/warning]")
+        return base
+    console.print("  [cyan]• 🖼️ image sub-sorting on (CLIP)[/cyan]")
+    return ImageInteraction(ImageClassifier(ImageEmbedder()), wrap=base or None)
 
 
 def _maybe_adaptive(args, classifier, embedder):
@@ -468,6 +494,55 @@ def _build_ai_interaction(args, ruleset, base):
     console.print(f"  [cyan]• 🤖 AI zero-shot embeddings — {label}[/cyan]")
     classifier = _maybe_adaptive(args, classifier, embedder)
     return AiInteraction(classifier, wrap=base or None)
+
+
+def _run_stats(directory: Path) -> None:
+    ruleset, _ = load_ruleset(directory)
+    with console.status("[info]Analyzing…[/info]"):
+        stats = compute_stats(directory, ruleset)
+
+    if stats.total_files == 0:
+        console.print("\n  [info]ℹ Empty directory.[/info]")
+        return
+
+    console.print(Panel.fit(
+        f"[bold]{stats.total_files}[/bold] files · [bold]{_format_bytes(stats.total_size)}[/bold]"
+        + (f"\n[warning]{stats.duplicate_groups} duplicate group(s) · "
+           f"{_format_bytes(stats.reclaimable)} reclaimable[/warning]"
+           if stats.duplicate_groups else ""),
+        title="📊 Insights", border_style="blue",
+    ))
+
+    # Category breakdown with size bars.
+    max_size = max((c.size for c in stats.categories), default=1) or 1
+    table = Table(title="By category", box=None)
+    table.add_column("Category", style="blue")
+    table.add_column("Files", justify="right", style="cyan")
+    table.add_column("Size", justify="right")
+    table.add_column("", style="magenta")
+    for c in stats.categories:
+        bar = "█" * max(1, round(c.size / max_size * 24)) if c.size else ""
+        table.add_row(c.category, str(c.count), _format_bytes(c.size), bar)
+    console.print("\n")
+    console.print(table)
+
+    # Largest files.
+    if stats.largest:
+        big = Table(title="Largest files", box=None)
+        big.add_column("File", style="cyan")
+        big.add_column("Size", justify="right", style="magenta")
+        for rel, size in stats.largest[:8]:
+            big.add_row(rel, _format_bytes(size))
+        console.print("\n")
+        console.print(big)
+
+    # Activity by month.
+    if stats.by_month:
+        max_m = max(stats.by_month.values()) or 1
+        console.print("\n  [bold]Files by month[/bold]")
+        for month, count in stats.by_month.items():
+            bar = "▉" * max(1, round(count / max_m * 30))
+            console.print(f"  [dim]{month}[/dim]  [blue]{bar}[/blue] {count}")
 
 
 def _run_undo(directory: Path) -> None:
@@ -597,10 +672,29 @@ def _safe_relpath(path: Path, base: Path) -> str:
         return str(path)
 
 
-def main(argv: list[str] | None = None) -> None:
-    args = build_parser().parse_args(argv)
-    directory = args.directory.resolve()
+def _resolve_profile(args) -> Path | None:
+    """Return the profile config path, warning if a named profile is missing."""
+    if not args.profile:
+        return None
+    path = profile_path(args.profile)
+    if not path.exists():
+        console.print(f"  [warning]⚠ profile '{args.profile}' not found at {path}[/warning]")
+        return None
+    return path
 
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.print_completion:
+        print(completion_script(args.print_completion, parser), end="")
+        return
+
+    if args.directory is None:
+        parser.error("the following arguments are required: directory")
+
+    directory = args.directory.resolve()
     if not directory.is_dir():
         console.print(f"[error]❌ ERROR: '{directory}' is not a valid directory.[/error]")
         sys.exit(1)
@@ -614,6 +708,8 @@ def main(argv: list[str] | None = None) -> None:
         _run_schedule(args, directory)
     elif args.ai_teach:
         _run_teach(args, directory)
+    elif args.stats:
+        _run_stats(directory)
     elif args.undo:
         _run_undo(directory)
     elif args.redo:

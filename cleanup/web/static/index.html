@@ -155,6 +155,18 @@
   .dupgroup .file.keep { color: var(--green); font-weight: 600; }
   .dupgroup .file.keep::after { content: " · kept"; font-weight: 400; opacity: .8; }
 
+  /* Insights */
+  .tiles { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  .tile { flex: 1; min-width: 120px; background: var(--surface-2); border-radius: 12px; padding: 14px 16px; }
+  .tile .v { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+  .tile .k { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .insights-h { font-size: 13px; font-weight: 600; color: var(--muted); margin: 18px 0 8px; }
+  .barrow { display: grid; grid-template-columns: 96px 1fr 96px; gap: 10px; align-items: center; margin: 6px 0; font-size: 13px; }
+  .barrow .lbl { font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .barrow .track { background: var(--surface-2); border-radius: 6px; height: 16px; overflow: hidden; }
+  .barrow .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: 6px; min-width: 2px; }
+  .barrow .val { color: var(--muted); font-size: 12px; text-align: right; }
+
   /* History */
   .hist { display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 10px; }
   .hist:nth-child(odd) { background: var(--surface-2); }
@@ -220,6 +232,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="organize">Organize</button>
     <button class="tab" data-tab="duplicates">Duplicates</button>
+    <button class="tab" data-tab="insights">Insights</button>
     <button class="tab" data-tab="history">History</button>
   </div>
 
@@ -247,6 +260,17 @@
         <span id="dup-status" class="muted"></span>
       </div>
       <div id="dup-body"></div>
+    </div>
+  </div>
+
+  <!-- INSIGHTS -->
+  <div class="panel" id="panel-insights">
+    <div class="card">
+      <div class="actions" style="margin-top:0">
+        <button class="primary" id="stats-load">Analyze folder</button>
+        <span id="stats-status" class="muted"></span>
+      </div>
+      <div id="insights-body"></div>
     </div>
   </div>
 
@@ -381,6 +405,7 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
   t.classList.add("active");
   $("#panel-" + t.dataset.tab).classList.add("active");
   if (t.dataset.tab === "history") loadHistory();
+  if (t.dataset.tab === "insights") loadStats();
 });
 
 // ── Preview ──
@@ -536,6 +561,65 @@ $("#redo").onclick = async () => {
   const res = await post("/api/redo", { path: $("#path").value.trim() });
   if (res.ok) loadHistory();
 };
+
+// ── Insights ──
+$("#stats-load").onclick = loadStats;
+async function loadStats() {
+  if (!$("#path").value.trim()) { $("#stats-status").textContent = "Enter a folder path first."; return; }
+  $("#stats-status").innerHTML = '<span class="spin"></span> analyzing…';
+  $("#insights-body").innerHTML = "";
+  const res = await (await fetch("/api/stats?path=" + encodeURIComponent($("#path").value.trim()))).json();
+  if (res.error) { $("#stats-status").textContent = "⚠ " + res.error; return; }
+  $("#stats-status").textContent = "";
+  renderStats(res);
+}
+function barRow(label, value, max, valText) {
+  const row = el("div", "barrow");
+  row.appendChild(el("div", "lbl", label));
+  const track = el("div", "track");
+  const fill = el("div", "fill");
+  fill.style.width = (max ? Math.max(2, value / max * 100) : 2) + "%";
+  track.appendChild(fill);
+  row.appendChild(track);
+  row.appendChild(el("div", "val", valText));
+  return row;
+}
+function renderStats(res) {
+  const b = $("#insights-body"); b.innerHTML = "";
+  if (!res.total_files) { b.appendChild(el("div", "empty", "Empty directory.")); return; }
+
+  const tiles = el("div", "tiles");
+  tiles.innerHTML =
+    `<div class="tile"><div class="v">${res.total_files}</div><div class="k">files</div></div>` +
+    `<div class="tile"><div class="v">${fmtBytes(res.total_size)}</div><div class="k">total size</div></div>` +
+    `<div class="tile"><div class="v">${res.duplicate_groups}</div><div class="k">duplicate groups</div></div>` +
+    `<div class="tile"><div class="v">${fmtBytes(res.reclaimable)}</div><div class="k">reclaimable</div></div>`;
+  b.appendChild(tiles);
+
+  b.appendChild(el("div", "insights-h", "BY CATEGORY"));
+  const maxCat = Math.max(...res.categories.map(c => c.size), 1);
+  res.categories.forEach(c => b.appendChild(barRow(c.category, c.size, maxCat, `${c.count} · ${fmtBytes(c.size)}`)));
+
+  const months = Object.entries(res.by_month);
+  if (months.length) {
+    b.appendChild(el("div", "insights-h", "FILES BY MONTH"));
+    const maxM = Math.max(...months.map(([, n]) => n), 1);
+    months.forEach(([m, n]) => b.appendChild(barRow(m, n, maxM, String(n))));
+  }
+
+  if (res.largest.length) {
+    b.appendChild(el("div", "insights-h", "LARGEST FILES"));
+    const scroll = el("div", "list-scroll");
+    res.largest.forEach(f => {
+      const r = el("div", "row");
+      r.style.gridTemplateColumns = "1fr auto";
+      r.appendChild(el("div", "src", f.name));
+      r.appendChild(el("div", "val", fmtBytes(f.size)));
+      scroll.appendChild(r);
+    });
+    b.appendChild(scroll);
+  }
+}
 
 // ── Folder picker ──
 let modalPath = null;
