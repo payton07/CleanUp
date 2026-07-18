@@ -22,8 +22,12 @@ content = ["python-magic>=0.4.27"]
 web = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
 # In-process embedding backend for --ai (no Ollama server needed).
 embed = ["fastembed>=0.3"]
+
+# Build a standalone binary (scripts/build_binary.sh).
+build = ["pyinstaller>=6"]
 # Image content sub-sorting (--ai-images) via CLIP; fastembed pulls in Pillow.
 image = ["fastembed>=0.3"]
+
 dev = ["pytest>=7", "httpx>=0.27"]
 
 [project.scripts]
